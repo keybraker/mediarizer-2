@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func creator(sourcePath string, queue chan<- FileInfo) {
+func creator(sourcePath string, queue chan<- FileInfo, moveUnknown bool) {
 	filepath.WalkDir(sourcePath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			fmt.Println(err)
@@ -23,13 +23,27 @@ func creator(sourcePath string, queue chan<- FileInfo) {
 
 		fileType := getFileType(path)
 		if fileType == Unknown {
-			queue <- FileInfo{Path: path, FileType: Unknown}
+			if moveUnknown {
+				err = moveFileToUnknownDirectory(path)
+				if err != nil {
+					fmt.Println(err)
+				}
+			} else {
+				queue <- FileInfo{Path: path, FileType: Unknown}
+			}
 			return nil
 		}
 
 		created, err := getCreatedTime(path)
 		if err != nil {
-			queue <- FileInfo{Path: path, FileType: Unknown}
+			if moveUnknown {
+				err = moveFileToUnknownDirectory(path)
+				if err != nil {
+					fmt.Println(err)
+				}
+			} else {
+				queue <- FileInfo{Path: path, FileType: Unknown}
+			}
 			return nil
 		}
 
@@ -37,6 +51,23 @@ func creator(sourcePath string, queue chan<- FileInfo) {
 		return nil
 	})
 	close(queue)
+}
+
+func moveFileToUnknownDirectory(path string) error {
+	unknownDir := filepath.Join(filepath.Dir(path), "unknown")
+	err := os.MkdirAll(unknownDir, 0755)
+	if err != nil {
+		return fmt.Errorf("failed to create unknown directory: %v", err)
+	}
+
+	_, filename := filepath.Split(path)
+	newPath := filepath.Join(unknownDir, filename)
+	err = os.Rename(path, newPath)
+	if err != nil {
+		return fmt.Errorf("failed to move file to unknown directory: %v", err)
+	}
+
+	return nil
 }
 
 // getFileType returns the type of the file at the given path.
@@ -68,6 +99,24 @@ func getFileType(path string) FileType {
 	}
 
 	return fileType
+}
+
+// getCreatedTime returns the modification time of the file at the given path,
+// since creation time is not available on non-Windows platforms.
+func getCreatedTime(path string) (time.Time, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer file.Close()
+
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	createdTime := fileInfo.ModTime()
+	return createdTime, nil
 }
 
 // // getCreatedTime returns the creation time of the file at the given path.
@@ -109,21 +158,3 @@ func getFileType(path string) FileType {
 // 	createdTime := fileInfo.ModTime()
 // 	return createdTime, nil
 // }
-
-// getCreatedTime returns the modification time of the file at the given path,
-// since creation time is not available on non-Windows platforms.
-func getCreatedTime(path string) (time.Time, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return time.Time{}, err
-	}
-	defer file.Close()
-
-	fileInfo, err := file.Stat()
-	if err != nil {
-		return time.Time{}, err
-	}
-
-	createdTime := fileInfo.ModTime()
-	return createdTime, nil
-}
