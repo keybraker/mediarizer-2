@@ -7,7 +7,7 @@ Mediarizer is a command-line tool for organizing your media files. It allows you
 To install Mediarizer, you'll need to have Go installed on your system. Once you have Go installed, you can run the following command:
 
 ```go
-go get github.com/mediarizer
+go install github.com/keybraker/mediarizer-2@latest
 ```
 
 This will download and install the Mediarizer package to your Go workspace.
