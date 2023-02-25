@@ -17,7 +17,7 @@ func main() {
 	outputPath := flag.String("output", "", "path to output directory")
 	moveUnknown := flag.Bool("unknown", true, "move media that have no metadata to undetermined folder")
 	geoLocation := flag.Bool("location", false, "move media according to geo location instead of date")
-	fileTypesString := flag.String("types", "", "organises only given file type/s")
+	fileTypesString := flag.String("types", "", "organises only given file type/s (.jpg, .png, .gif,.mp4, .avi, .mov, .mkv)")
 	organisePhotos := flag.Bool("photo", true, "organises only photos")
 	organiseVideos := flag.Bool("video", true, "organises only videos")
 
@@ -28,6 +28,7 @@ func main() {
 		displayHelp()
 		os.Exit(0)
 	}
+
 	if *showVersion {
 		fmt.Println("Mediarizer 2 version 1.0.0")
 		os.Exit(0)

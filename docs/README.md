@@ -16,17 +16,17 @@ This will download and install the Mediarizer package to your Go workspace.
 
 Mediarizer can be used from the command line by running the `mediarizer` command followed by various flags. Here's a list of available flags:
 
-| Name        |          Argument           | Description                                                                             |
-| :---------- | :-------------------------: | :-------------------------------------------------------------------------------------- |
-| `-help`     |          `<none>`           | Displays a usage guide of Mediarizer.                                                   |
-| `-version`  |          `<none>`           | Displays the current version of Mediarizer.                                             |
-| `-input`    |          `<path>`           | Specifies the path to the file or directory that you want to organize.                  |
-| `-output`   |          `<path>`           | Specifies the path to the output directory where you want to store the organized files. |
-| `-unknown`  |          `<bool>`           | Moves media that have no metadata to an "undetermined" folder.                          |
-| `-location` |          `<bool>`           | Moves media according to geo-location instead of date.                                  |
-| `-types`    |          `<types>`          | Organizes only given file type/s.                                                       |
-| `-photo`    | `<comma seperated strings>` | Organizes only photos. (.jpg, .png, .gif)                                               |
-| `-video`    | `<comma seperated strings>` | Organizes only videos. (.mp4, .avi, .mov, .mkv)                                         |
+| Name        |          Argument           |  Default  | Description                                                                             |
+| :---------- | :-------------------------: | :-------: | :-------------------------------------------------------------------------------------- |
+| `-help`     |          `<none>`           | `<none>`  | Displays a usage guide of Mediarizer.                                                   |
+| `-version`  |          `<none>`           | `<none>`  | Displays the current version of Mediarizer.                                             |
+| `-input`    |          `<path>`           | `<none>`  | Specifies the path to the file or directory that you want to organize.                  |
+| `-output`   |          `<path>`           | `<none>`  | Specifies the path to the output directory where you want to store the organized files. |
+| `-unknown`  |          `<bool>`           | `<true>`  | Moves media that have no metadata to an "undetermined" folder.                          |
+| `-location` |          `<bool>`           | `<false>` | Moves media according to geo-location instead of date.                                  |
+| `-types`    | `<comma seperated strings>` |  `<all>`  | Organizes only given file type/s (.jpg, .png, .gif,.mp4, .avi, .mov, .mkv).             |
+| `-photo`    |          `<bool>`           | `<true>`  | Organizes only photos.                                                                  |
+| `-video`    |          `<bool>`           | `<true>`  | Organizes only videos.                                                                  |
 
 To use Mediarizer, simply run the `mediarizer` command followed by any desired flags. For example:
 
