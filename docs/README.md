@@ -1,4 +1,4 @@
-# Mediarizer
+# Mediarizer 2
 
 Mediarizer is a command-line tool for organizing your media files. It allows you to easily sort your photos and videos into folders based on date, location, file type, and other criteria.
 
