@@ -38,19 +38,19 @@ windows:
 
 Mediarizer can be used from the command line by running the `mediarizer` command followed by various flags. Here's a list of available flags:
 
-| Name        |          Argument           |  Default  | Description                                                                             |
-| :---------- | :-------------------------: | :-------: | :-------------------------------------------------------------------------------------- |
-| `-help`     |          `<none>`           | `<none>`  | Displays a usage guide of Mediarizer.                                                   |
-| `-version`  |          `<none>`           | `<none>`  | Specifies the path to the file or directory that you want to organize.                  |
-| `-input`    |          `<path>`           | `<none>`  | Moves media according to geo-location instead of date.                                  |
-| `-output`   |          `<path>`           | `<none>`  | Specifies the path to the output directory where you want to store the organized files. |
-| `-unknown`  |          `<bool>`           | `<true>`  | Organizes only photos.                                                                  |
-| `-location` |          `<bool>`           | `<false>` | Organizes only the given file type/s (.jpg, .png, .gif, .mp4, .avi, .mov, .mkv).        |
-| `-types`    | `<comma separated strings>` |  `<all>`  | Moves media that have no metadata to an "undetermined" folder.                          |
-| `-photo`    |          `<bool>`           | `<true>`  | Displays the file being moved in the console.                                           |
-| `-video`    |          `<bool>`           | `<true>`  | Displays the current version of Mediarizer.                                             |
-| `-format`   |         `<string>`          | `<name>`  | Organizes only videos.                                                                  |
-| `-verbose`  |          `<bool>`           | `<false>` | Specifies the naming format for month folders.                                          |
+| Name        |          Argument           |  Default  | Description                                                                            |
+| :---------- | :-------------------------: | :-------: | :------------------------------------------------------------------------------------- |
+| `-help`     |          `<none>`           | `<none>`  | Display usage guide                                                                    |
+| `-version`  |          `<none>`           | `<none>`  | Display version information                                                            |
+| `-input`    |          `<path>`           | `<none>`  | Path to source file or directory                                                       |
+| `-output`   |          `<path>`           | `<none>`  | Path to destination directory                                                          |
+| `-unknown`  |          `<bool>`           | `<true>`  | Move files with no metadata to undetermined folder                                     |
+| `-location` |          `<bool>`           | `<false>` | Organize files based on their geo location                                             |
+| `-types`    | `<comma separated strings>` |  `<all>`  | Comma separated file extensions to organize (.jpg, .png, .gif, .mp4, .avi, .mov, .mkv) |
+| `-photo`    |          `<bool>`           | `<true>`  | Organise only photos                                                                   |
+| `-video`    |          `<bool>`           | `<true>`  | Organise only videos                                                                   |
+| `-format`   |         `<string>`          | `<name>`  | Naming format for month folders (word, number, combined).                              |
+| `-verbose`  |          `<bool>`           | `<false>` | Display progress information in console.                                               |
 
 To use Mediarizer, simply run the `mediarizer` command followed by any desired flags. For example:
 
