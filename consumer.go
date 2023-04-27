@@ -2,17 +2,22 @@ package main
 
 import (
 	"bytes"
+	"container/list"
 	"crypto/sha256"
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 )
 
-func consumer(destinationPath string, fileInfoQueue <-chan FileInfo, geoLocation bool, format string, verbose bool, done chan<- struct{}) {
+func consumer(destinationPath string, fileInfoQueue <-chan FileInfo, geoLocation bool, format string, verbose bool, totalFiles int, done chan<- struct{}) {
+	processedImages := list.New()
+	processedFiles := 0
+
 	for fileInfo := range fileInfoQueue {
 		var destPath string
 
@@ -37,9 +42,12 @@ func consumer(destinationPath string, fileInfoQueue <-chan FileInfo, geoLocation
 				destPath = fmt.Sprintf("%s/unknown/%s", destinationPath, filepath.Base(fileInfo.Path))
 			}
 		}
-		if err := moveFile(fileInfo.Path, destPath, verbose); err != nil {
+
+		if err := moveFile(fileInfo.Path, destPath, verbose, processedImages, processedFiles, totalFiles); err != nil {
 			fmt.Printf("failed to move %s to %s: %v\n", fileInfo.Path, destPath, err)
 		}
+
+		processedFiles++
 	}
 
 	done <- struct{}{}
@@ -73,7 +81,7 @@ func calculateFileHash(filePath string) ([]byte, error) {
 	return hash.Sum(nil), nil
 }
 
-func moveFile(sourcePath, destPath string, verbose bool) error {
+func moveFile(sourcePath, destPath string, verbose bool, processedImages *list.List, processedFiles int, totalFiles int) error {
 	err := createDestinationDirectory(filepath.Dir(destPath))
 	if err != nil {
 		return err
@@ -94,6 +102,14 @@ func moveFile(sourcePath, destPath string, verbose bool) error {
 		destPath, err = handleDuplicates(destPath, duplicateFileName)
 		if err != nil {
 			return err
+		}
+	} else {
+		_, err := os.Stat(destPath)
+		if !os.IsNotExist(err) {
+			destPath, err = generateUniqueName(destPath)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -118,7 +134,13 @@ func moveFile(sourcePath, destPath string, verbose bool) error {
 			actionName = "Moving duplicate file"
 		}
 
-		fmt.Printf("\033[1m%s%s\033[0m %s \033[1m%s%s\033[0m %s\n", colorCode, actionName, source, colorCode, "to", dest)
+		percentage := math.Min(100, float64(processedFiles+1)/float64(totalFiles)*100)
+
+		if percentage < 10 {
+			fmt.Printf("\033[1m[0%.2f%%] %s%s\033[0m %s \033[1m%s%s\033[0m %s\n", percentage, colorCode, actionName, source, colorCode, "to", dest)
+		} else {
+			fmt.Printf("\033[1m[%.2f%%] %s%s\033[0m %s \033[1m%s%s\033[0m %s\n", percentage, colorCode, actionName, source, colorCode, "to", dest)
+		}
 	}
 
 	err = renameFile(sourcePath, destPath)
@@ -172,4 +194,25 @@ func renameFile(sourcePath, destPath string) error {
 	}
 
 	return nil
+}
+
+func generateUniqueName(destPath string) (string, error) {
+	ext := filepath.Ext(destPath)
+	nameWithoutExt := destPath[:len(destPath)-len(ext)]
+	counter := 1
+	newPath := destPath
+
+	for {
+		_, err := os.Stat(newPath)
+		if os.IsNotExist(err) {
+			break
+		} else if err != nil {
+			return "", fmt.Errorf("failed to check destination file %s: %v", newPath, err)
+		}
+
+		newPath = fmt.Sprintf("%s_%d%s", nameWithoutExt, counter, ext)
+		counter++
+	}
+
+	return newPath, nil
 }
