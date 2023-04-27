@@ -73,11 +73,16 @@ func main() {
 		log.Fatal("error: input and output paths must be on the same disk drive")
 	}
 
+	totalFiles := 0
+	if *verbose {
+		totalFiles = countFiles(sourcePath, fileTypes, *organisePhotos, *organiseVideos)
+	}
+
 	fileInfoQueue := make(chan FileInfo)
 	done := make(chan struct{})
 
 	go creator(sourcePath, fileInfoQueue, *geoLocation, *moveUnknown, fileTypes, *organisePhotos, *organiseVideos)
-	go consumer(destinationPath, fileInfoQueue, *geoLocation, *format, *verbose, done)
+	go consumer(destinationPath, fileInfoQueue, *geoLocation, *format, *verbose, totalFiles, done)
 
 	<-done
 }
@@ -86,4 +91,34 @@ func displayHelp() {
 	fmt.Println("Usage: mediarizer [flags]")
 	fmt.Println("Flags:")
 	flag.PrintDefaults()
+}
+
+func contains(arr []string, str string) bool {
+	for _, a := range arr {
+		if a == str {
+			return true
+		}
+	}
+	return false
+}
+
+func countFiles(rootPath string, fileTypes []string, organisePhotos bool, organiseVideos bool) int {
+	count := 0
+	filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+
+		if !info.IsDir() {
+			ext := strings.ToLower(filepath.Ext(path))
+
+			if organisePhotos && isPhoto(ext) && (len(fileTypes) == 0 || contains(fileTypes, ext)) {
+				count++
+			} else if organiseVideos && isVideo(ext) && (len(fileTypes) == 0 || contains(fileTypes, ext)) {
+				count++
+			}
+		}
+		return nil
+	})
+	return count
 }
