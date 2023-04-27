@@ -95,6 +95,14 @@ func moveFile(sourcePath, destPath string, verbose bool) error {
 		if err != nil {
 			return err
 		}
+	} else {
+		_, err := os.Stat(destPath)
+		if !os.IsNotExist(err) {
+			destPath, err = generateUniqueName(destPath)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	if verbose {
@@ -172,4 +180,25 @@ func renameFile(sourcePath, destPath string) error {
 	}
 
 	return nil
+}
+
+func generateUniqueName(destPath string) (string, error) {
+	ext := filepath.Ext(destPath)
+	nameWithoutExt := destPath[:len(destPath)-len(ext)]
+	counter := 1
+	newPath := destPath
+
+	for {
+		_, err := os.Stat(newPath)
+		if os.IsNotExist(err) {
+			break
+		} else if err != nil {
+			return "", fmt.Errorf("failed to check destination file %s: %v", newPath, err)
+		}
+
+		newPath = fmt.Sprintf("%s_%d%s", nameWithoutExt, counter, ext)
+		counter++
+	}
+
+	return newPath, nil
 }
