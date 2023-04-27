@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -86,7 +87,7 @@ func moveFile(sourcePath, destPath string) error {
 		return fmt.Errorf("failed to read destination directory: %v", err)
 	}
 
-	isDuplicate := false
+	duplicateFileName := ""
 	for _, destFile := range destFiles {
 		destFilePath := filepath.Join(filepath.Dir(destPath), destFile.Name())
 		destHash, err := calculateFileHash(destFilePath)
@@ -95,16 +96,22 @@ func moveFile(sourcePath, destPath string) error {
 		}
 
 		if bytes.Equal(sourceHash, destHash) {
-			isDuplicate = true
+			duplicateFileName = destFile.Name()
 			break
 		}
 	}
 
-	if isDuplicate {
-		fileExt := filepath.Ext(destPath)
-		fileBase := filepath.Base(destPath)
-		fileNameWithoutExt := fileBase[:len(fileBase)-len(fileExt)]
-		destPath = filepath.Join(filepath.Dir(destPath), fileNameWithoutExt+"_DUPLICATE"+fileExt)
+	if duplicateFileName != "" {
+		ext := filepath.Ext(duplicateFileName)
+		nameWithoutExt := duplicateFileName[:len(duplicateFileName)-len(ext)]
+		underscoreExt := strings.ReplaceAll(ext, ".", "_")
+		duplicatesFolder := filepath.Join(filepath.Dir(destPath), fmt.Sprintf("%s%s_duplicates", nameWithoutExt, underscoreExt))
+		if _, err := os.Stat(duplicatesFolder); os.IsNotExist(err) {
+			if err := os.MkdirAll(duplicatesFolder, os.ModePerm); err != nil {
+				return fmt.Errorf("failed to create duplicates folder %s: %v", duplicatesFolder, err)
+			}
+		}
+		destPath = filepath.Join(duplicatesFolder, filepath.Base(sourcePath))
 	}
 
 	if err := os.Rename(sourcePath, destPath); err != nil {
