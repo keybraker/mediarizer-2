@@ -16,7 +16,7 @@ var featureCollection FeatureCollection
 
 func creator(
 	sourcePath string,
-	queue chan<- FileInfo,
+	fileInfoQueue chan<- FileInfo,
 	geoLocation bool,
 	moveUnknown bool,
 	fileTypesToInclude []string,
@@ -29,7 +29,7 @@ func creator(
 			return err
 		}
 
-		if !d.Type().IsRegular() {
+		if !os.FileMode(d.Type()).IsRegular() {
 			return nil // skip directories and other non-regular files
 		}
 
@@ -37,7 +37,7 @@ func creator(
 
 		if fileType == Unknown {
 			if moveUnknown {
-				queue <- FileInfo{Path: path, FileType: Unknown}
+				fileInfoQueue <- FileInfo{Path: path, FileType: Unknown}
 			}
 			return nil
 		}
@@ -50,7 +50,7 @@ func creator(
 			}
 
 			if fileType != FileTypeExcluded {
-				queue <- FileInfo{Path: path, FileType: fileType, Country: country}
+				fileInfoQueue <- FileInfo{Path: path, FileType: fileType, Country: country}
 			}
 		} else {
 			createdDate, hasCreationDate, err := getCreatedTime(path)
@@ -60,13 +60,13 @@ func creator(
 			}
 
 			if fileType != FileTypeExcluded {
-				queue <- FileInfo{Path: path, FileType: fileType, Created: createdDate, HasCreationDate: hasCreationDate}
+				fileInfoQueue <- FileInfo{Path: path, FileType: fileType, Created: createdDate, HasCreationDate: hasCreationDate}
 			}
 		}
 
 		return nil
 	})
-	close(queue)
+	close(fileInfoQueue)
 }
 
 func getFileType(path string, fileTypesToInclude []string, organisePhotos bool, organiseVideos bool) FileType {
@@ -92,7 +92,7 @@ func getFileType(path string, fileTypesToInclude []string, organisePhotos bool, 
 		fileType = FileTypeExcluded
 	}
 
-	extension := strings.ToLower(filepath.Ext(path))
+	extension := filepath.Ext(path)
 
 	if fileTypesToInclude != nil && !isStringInArray(extension, fileTypesToInclude) {
 		fileType = FileTypeExcluded
@@ -108,8 +108,9 @@ func getFileType(path string, fileTypesToInclude []string, organisePhotos bool, 
 }
 
 func isStringInArray(str string, arr []string) bool {
+	lowerStr := strings.ToLower(str)
 	for _, val := range arr {
-		if val == str {
+		if strings.ToLower(val) == lowerStr {
 			return true
 		}
 	}

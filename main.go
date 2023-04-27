@@ -19,7 +19,7 @@ func main() {
 	fileTypesString := flag.String("types", "", "organises only given file type/s (.jpg, .png, .gif,.mp4, .avi, .mov, .mkv)")
 	organisePhotos := flag.Bool("photo", true, "organises only photos")
 	organiseVideos := flag.Bool("video", true, "organises only videos")
-	format := flag.String("format", "word", "specifies the naming format for folders (word, number, combined)")
+	format := flag.String("format", "word", "specifies the naming format for month folders (word, number, combined)")
 
 	flag.Parse()
 

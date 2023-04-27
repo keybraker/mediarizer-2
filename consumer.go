@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-func consumer(destinationPath string, queue <-chan FileInfo, geoLocation bool, format string, done chan<- struct{}) {
-	for fileInfo := range queue {
+func consumer(destinationPath string, fileInfoQueue <-chan FileInfo, geoLocation bool, format string, done chan<- struct{}) {
+	for fileInfo := range fileInfoQueue {
 		var destPath string
 
 		if geoLocation {
