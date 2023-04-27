@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -53,9 +56,55 @@ func monthFolder(month time.Month, format string) string {
 	}
 }
 
+func calculateFileHash(filePath string) ([]byte, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return nil, err
+	}
+
+	return hash.Sum(nil), nil
+}
+
 func moveFile(sourcePath, destPath string) error {
 	if err := os.MkdirAll(filepath.Dir(destPath), os.ModePerm); err != nil {
 		return fmt.Errorf("failed to create destination directory %s: %v", filepath.Dir(destPath), err)
+	}
+
+	sourceHash, err := calculateFileHash(sourcePath)
+	if err != nil {
+		return fmt.Errorf("failed to calculate source file hash: %v", err)
+	}
+
+	destFiles, err := os.ReadDir(filepath.Dir(destPath))
+	if err != nil {
+		return fmt.Errorf("failed to read destination directory: %v", err)
+	}
+
+	isDuplicate := false
+	for _, destFile := range destFiles {
+		destFilePath := filepath.Join(filepath.Dir(destPath), destFile.Name())
+		destHash, err := calculateFileHash(destFilePath)
+		if err != nil {
+			return fmt.Errorf("failed to calculate destination file hash: %v", err)
+		}
+
+		if bytes.Equal(sourceHash, destHash) {
+			isDuplicate = true
+			break
+		}
+	}
+
+	if isDuplicate {
+		fileExt := filepath.Ext(destPath)
+		fileBase := filepath.Base(destPath)
+		fileNameWithoutExt := fileBase[:len(fileBase)-len(fileExt)]
+		destPath = filepath.Join(filepath.Dir(destPath), fileNameWithoutExt+"_DUPLICATE"+fileExt)
 	}
 
 	if err := os.Rename(sourcePath, destPath); err != nil {
