@@ -49,6 +49,7 @@ Mediarizer can be used from the command line by running the `mediarizer` command
 | `-types`    | `<comma separated strings>` |  `<all>`  | Organizes only given file type/s (.jpg, .png, .gif,.mp4, .avi, .mov, .mkv).             |
 | `-photo`    |          `<bool>`           | `<true>`  | Organizes only photos.                                                                  |
 | `-video`    |          `<bool>`           | `<true>`  | Organizes only videos.                                                                  |
+| `-format`   |         `<string>`          | `<name>`  | Specifies the naming format for month folders (word, number, combined).                 |
 
 To use Mediarizer, simply run the `mediarizer` command followed by any desired flags. For example:
 

@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"os"
+	"strings"
 )
 
 func isPhoto(fileExt string) bool {
-	if getPhotoType(fileExt) == -1 {
+	fileExToLower := strings.ToLower(fileExt)
+	if getPhotoType(fileExToLower) == -1 {
 		return false
 	} else {
 		return true
@@ -15,7 +17,8 @@ func isPhoto(fileExt string) bool {
 }
 
 func isVideo(fileExt string) bool {
-	if getVideoType(fileExt) == -1 {
+	fileExToLower := strings.ToLower(fileExt)
+	if getVideoType(fileExToLower) == -1 {
 		return false
 	} else {
 		return true

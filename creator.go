@@ -16,7 +16,7 @@ var featureCollection FeatureCollection
 
 func creator(
 	sourcePath string,
-	queue chan<- FileInfo,
+	fileInfoQueue chan<- FileInfo,
 	geoLocation bool,
 	moveUnknown bool,
 	fileTypesToInclude []string,
@@ -29,7 +29,7 @@ func creator(
 			return err
 		}
 
-		if !d.Type().IsRegular() {
+		if !os.FileMode(d.Type()).IsRegular() {
 			return nil // skip directories and other non-regular files
 		}
 
@@ -37,7 +37,7 @@ func creator(
 
 		if fileType == Unknown {
 			if moveUnknown {
-				queue <- FileInfo{Path: path, FileType: Unknown}
+				fileInfoQueue <- FileInfo{Path: path, FileType: Unknown}
 			}
 			return nil
 		}
@@ -50,7 +50,7 @@ func creator(
 			}
 
 			if fileType != FileTypeExcluded {
-				queue <- FileInfo{Path: path, FileType: fileType, Country: country}
+				fileInfoQueue <- FileInfo{Path: path, FileType: fileType, Country: country}
 			}
 		} else {
 			createdDate, hasCreationDate, err := getCreatedTime(path)
@@ -60,16 +60,15 @@ func creator(
 			}
 
 			if fileType != FileTypeExcluded {
-				queue <- FileInfo{Path: path, FileType: fileType, Created: createdDate, HasCreationDate: hasCreationDate}
+				fileInfoQueue <- FileInfo{Path: path, FileType: fileType, Created: createdDate, HasCreationDate: hasCreationDate}
 			}
 		}
 
 		return nil
 	})
-	close(queue)
+	close(fileInfoQueue)
 }
 
-// getFileType returns the type of the file at the given path.
 func getFileType(path string, fileTypesToInclude []string, organisePhotos bool, organiseVideos bool) FileType {
 	file, err := os.Open(path)
 	if err != nil {
@@ -93,7 +92,7 @@ func getFileType(path string, fileTypesToInclude []string, organisePhotos bool, 
 		fileType = FileTypeExcluded
 	}
 
-	extension := strings.ToLower(filepath.Ext(path))
+	extension := filepath.Ext(path)
 
 	if fileTypesToInclude != nil && !isStringInArray(extension, fileTypesToInclude) {
 		fileType = FileTypeExcluded
@@ -109,8 +108,9 @@ func getFileType(path string, fileTypesToInclude []string, organisePhotos bool, 
 }
 
 func isStringInArray(str string, arr []string) bool {
+	lowerStr := strings.ToLower(str)
 	for _, val := range arr {
-		if val == str {
+		if strings.ToLower(val) == lowerStr {
 			return true
 		}
 	}
@@ -118,16 +118,15 @@ func isStringInArray(str string, arr []string) bool {
 }
 
 func getExifData(path string) (exif.Exif, error) {
-	// First, try to get the created time from the photo's metadata.
 	file, err := os.Open(path)
-	defer file.Close()
 	if err != nil {
-		return exif.Exif{}, fmt.Errorf("Failed to open file %v: %e", path, err)
+		return exif.Exif{}, fmt.Errorf("failed to open file %v: %v", path, err)
 	}
+	defer file.Close()
 
 	exifData, err := exif.Decode(file)
 	if err != nil {
-		return exif.Exif{}, fmt.Errorf("Failed to decode file %v: %e", path, err)
+		return exif.Exif{}, fmt.Errorf("failed to decode file %v: %v", path, err)
 	}
 
 	return *exifData, nil
@@ -142,10 +141,9 @@ func getCreatedTime(path string) (time.Time, bool, error) {
 		}
 	}
 
-	// If there's no metadata, get the modified time from the file system.
 	fileInfo, err := os.Stat(path)
 	if err != nil {
-		return time.Time{}, false, fmt.Errorf("Failed to get file info: %e", err)
+		return time.Time{}, false, fmt.Errorf("failed to get file info: %e", err)
 	}
 
 	return fileInfo.ModTime(), false, nil
@@ -159,27 +157,22 @@ func getCountry(path string) (string, error) {
 
 	lat, lon, err := exifData.LatLong()
 	if err != nil {
-		return "", fmt.Errorf("Exif data does not have lat lon")
+		return "", fmt.Errorf("exif data does not have lat lon")
 	}
 
-	// Iterate through features and check if coordinates lie within geometry
 	for _, feature := range featureCollection.Features {
 		if feature.Geometry != nil && feature.Geometry.Type == "Polygon" {
-			// Check if point is within polygon
 			coords := feature.Geometry.Coordinates[0]
 			if pointInPolygon(lon, lat, coords) {
-				// Found matching country
 				return feature.Properties["name"].(string), nil
 			}
 		}
 	}
 
-	// No matching country found
-	return "", fmt.Errorf("No matching country found for coordinates")
+	return "", fmt.Errorf("no matching country found for coordinates")
 }
 
 func pointInPolygon(x, y float64, polyCoords [][]float64) bool {
-	// Source: https://stackoverflow.com/a/2922778
 	inside := false
 	for i := 0; i < len(polyCoords); i++ {
 		j := len(polyCoords) - 1
