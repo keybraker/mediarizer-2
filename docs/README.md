@@ -41,15 +41,16 @@ Mediarizer can be used from the command line by running the `mediarizer` command
 | Name        |          Argument           |  Default  | Description                                                                             |
 | :---------- | :-------------------------: | :-------: | :-------------------------------------------------------------------------------------- |
 | `-help`     |          `<none>`           | `<none>`  | Displays a usage guide of Mediarizer.                                                   |
-| `-version`  |          `<none>`           | `<none>`  | Displays the current version of Mediarizer.                                             |
-| `-input`    |          `<path>`           | `<none>`  | Specifies the path to the file or directory that you want to organize.                  |
+| `-version`  |          `<none>`           | `<none>`  | Specifies the path to the file or directory that you want to organize.                  |
+| `-input`    |          `<path>`           | `<none>`  | Moves media according to geo-location instead of date.                                  |
 | `-output`   |          `<path>`           | `<none>`  | Specifies the path to the output directory where you want to store the organized files. |
-| `-unknown`  |          `<bool>`           | `<true>`  | Moves media that have no metadata to an "undetermined" folder.                          |
-| `-location` |          `<bool>`           | `<false>` | Moves media according to geo-location instead of date.                                  |
-| `-types`    | `<comma separated strings>` |  `<all>`  | Organizes only given file type/s (.jpg, .png, .gif,.mp4, .avi, .mov, .mkv).             |
-| `-photo`    |          `<bool>`           | `<true>`  | Organizes only photos.                                                                  |
-| `-video`    |          `<bool>`           | `<true>`  | Organizes only videos.                                                                  |
-| `-format`   |         `<string>`          | `<name>`  | Specifies the naming format for month folders (word, number, combined).                 |
+| `-unknown`  |          `<bool>`           | `<true>`  | Organizes only photos.                                                                  |
+| `-location` |          `<bool>`           | `<false>` | Organizes only the given file type/s (.jpg, .png, .gif, .mp4, .avi, .mov, .mkv).        |
+| `-types`    | `<comma separated strings>` |  `<all>`  | Moves media that have no metadata to an "undetermined" folder.                          |
+| `-photo`    |          `<bool>`           | `<true>`  | Displays the file being moved in the console.                                           |
+| `-video`    |          `<bool>`           | `<true>`  | Displays the current version of Mediarizer.                                             |
+| `-format`   |         `<string>`          | `<name>`  | Organizes only videos.                                                                  |
+| `-verbose`  |          `<bool>`           | `<false>` | Specifies the naming format for month folders.                                          |
 
 To use Mediarizer, simply run the `mediarizer` command followed by any desired flags. For example:
 

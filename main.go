@@ -10,16 +10,17 @@ import (
 )
 
 func main() {
-	showHelp := flag.Bool("help", false, "displays a usage guide of Mediarizer")
-	showVersion := flag.Bool("version", false, "displays current version")
-	inputPath := flag.String("input", "", "path to file or directory")
-	outputPath := flag.String("output", "", "path to output directory")
-	moveUnknown := flag.Bool("unknown", true, "move media that have no metadata to undetermined folder")
-	geoLocation := flag.Bool("location", false, "move media according to geo location instead of date")
-	fileTypesString := flag.String("types", "", "organises only given file type/s (.jpg, .png, .gif,.mp4, .avi, .mov, .mkv)")
-	organisePhotos := flag.Bool("photo", true, "organises only photos")
-	organiseVideos := flag.Bool("video", true, "organises only videos")
-	format := flag.String("format", "word", "specifies the naming format for month folders (word, number, combined)")
+	showHelp := flag.Bool("help", false, "Display usage guide")
+	showVersion := flag.Bool("version", false, "Display version information")
+	inputPath := flag.String("input", "", "Path to source file or directory")
+	outputPath := flag.String("output", "", "Path to destination directory")
+	moveUnknown := flag.Bool("unknown", true, "Move files with no metadata to undetermined folder")
+	geoLocation := flag.Bool("location", false, "Organize files based on their geo location")
+	fileTypesString := flag.String("types", "", "Comma separated file extensions to organize (.jpg, .png, .gif, .mp4, .avi, .mov, .mkv)")
+	organisePhotos := flag.Bool("photo", true, "Organise only photos")
+	organiseVideos := flag.Bool("video", true, "Organise only videos")
+	format := flag.String("format", "word", "Naming format for month folders (word, number, combined)")
+	verbose := flag.Bool("verbose", false, "Display progress information in console")
 
 	flag.Parse()
 
@@ -65,11 +66,18 @@ func main() {
 	sourcePath := filepath.Clean(*inputPath)
 	destinationPath := filepath.Clean(*outputPath)
 
-	queue := make(chan FileInfo)
+	sourceDrive := filepath.VolumeName(sourcePath)
+	destDrive := filepath.VolumeName(destinationPath)
+
+	if sourceDrive != "" && destDrive != "" && sourceDrive != destDrive {
+		log.Fatal("error: input and output paths must be on the same disk drive")
+	}
+
+	fileInfoQueue := make(chan FileInfo)
 	done := make(chan struct{})
 
-	go creator(sourcePath, queue, *geoLocation, *moveUnknown, fileTypes, *organisePhotos, *organiseVideos)
-	go consumer(destinationPath, queue, *geoLocation, *format, done)
+	go creator(sourcePath, fileInfoQueue, *geoLocation, *moveUnknown, fileTypes, *organisePhotos, *organiseVideos)
+	go consumer(destinationPath, fileInfoQueue, *geoLocation, *format, *verbose, done)
 
 	<-done
 }
