@@ -20,7 +20,7 @@ func main() {
 	organisePhotos := flag.Bool("photo", true, "Organise only photos")
 	organiseVideos := flag.Bool("video", true, "Organise only videos")
 	format := flag.String("format", "word", "Naming format for month folders (word, number, combined)")
-	verbose := flag.Bool("verbose", false, "Display progress information in console")
+	verbose := flag.Bool("verbose", true, "Display progress information in console")
 
 	flag.Parse()
 

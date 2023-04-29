@@ -50,7 +50,7 @@ Mediarizer can be used from the command line by running the `mediarizer` command
 | `-photo`    |          `<bool>`           | `<true>`  | Organise only photos                                                                   |
 | `-video`    |          `<bool>`           | `<true>`  | Organise only videos                                                                   |
 | `-format`   |         `<string>`          | `<name>`  | Naming format for month folders (word, number, combined).                              |
-| `-verbose`  |          `<bool>`           | `<false>` | Display progress information in console.                                               |
+| `-verbose`  |          `<bool>`           | `<true>`  | Display progress information in console.                                               |
 
 To use Mediarizer, simply run the `mediarizer` command followed by any desired flags. For example:
 
