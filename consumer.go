@@ -114,32 +114,44 @@ func moveFile(sourcePath, destPath string, verbose bool, processedImages *list.L
 	}
 
 	if verbose {
-		const maxPathLength = 60
+		const maxPathLength = 90
 		var source, dest string
-		if len(sourcePath) > maxPathLength {
-			source = "..." + sourcePath[len(sourcePath)-maxPathLength:]
-		} else {
-			source = sourcePath
+
+		fileInfo, err := os.Stat(sourcePath)
+		if err != nil {
+			return err
 		}
-		if len(destPath) > maxPathLength {
-			dest = "..." + destPath[len(destPath)-maxPathLength:]
+		fileSizeMB := float64(fileInfo.Size()) / 1024.0 / 1024.0
+		fileSizeStr := fmt.Sprintf("%.2fMb", fileSizeMB)
+
+		sourceDir := filepath.Dir(sourcePath)
+		if len(sourceDir) > maxPathLength {
+			source = "..." + sourceDir[len(sourceDir)-maxPathLength:]
 		} else {
-			dest = destPath
+			source = sourceDir
+		}
+
+		destDir := filepath.Dir(destPath)
+		if len(destDir) > maxPathLength {
+			dest = "..." + destDir[len(destDir)-maxPathLength:]
+		} else {
+			dest = destDir
 		}
 
 		colorCode := "\033[32m"
-		actionName := "Moving original  file"
+		actionName := "Moved (org)"
 		if duplicateFileName != "" {
 			colorCode = "\033[33m"
-			actionName = "Moving duplicate file"
+			actionName = "Moved (dup)"
 		}
 
 		percentage := math.Min(100, float64(processedFiles+1)/float64(totalFiles)*100)
 
-		if percentage < 10 {
-			fmt.Printf("\033[1m[0%.2f%%] %s%s\033[0m %s \033[1m%s%s\033[0m %s\n", percentage, colorCode, actionName, source, colorCode, "to", dest)
+		fileName := filepath.Base(sourcePath)
+		if percentage < 10.00 {
+			fmt.Printf("\033[1m[0%.2f%% | %s] %s%s\033[0m %s\n └─ from %s%s\033[0m\n └─── to %s%s\033[0m\n", percentage, fileSizeStr, colorCode, actionName, fileName, colorCode, source, colorCode, dest)
 		} else {
-			fmt.Printf("\033[1m[%.2f%%] %s%s\033[0m %s \033[1m%s%s\033[0m %s\n", percentage, colorCode, actionName, source, colorCode, "to", dest)
+			fmt.Printf("\033[1m[%.2f%% | %s] %s%s\033[0m %s\n └─ from %s%s\033[0m\n └─── to %s%s\033[0m\n", percentage, fileSizeStr, colorCode, actionName, fileName, colorCode, source, colorCode, dest)
 		}
 	}
 
