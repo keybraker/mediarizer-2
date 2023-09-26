@@ -66,6 +66,7 @@ func creator(
 
 		return nil
 	})
+
 	close(fileInfoQueue)
 }
 
@@ -114,6 +115,7 @@ func isStringInArray(str string, arr []string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -181,5 +183,6 @@ func pointInPolygon(x, y float64, polyCoords [][]float64) bool {
 			inside = !inside
 		}
 	}
+
 	return inside
 }

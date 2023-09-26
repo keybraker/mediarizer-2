@@ -10,17 +10,22 @@ import (
 )
 
 func main() {
-	showHelp := flag.Bool("help", false, "Display usage guide")
-	showVersion := flag.Bool("version", false, "Display version information")
 	inputPath := flag.String("input", "", "Path to source file or directory")
 	outputPath := flag.String("output", "", "Path to destination directory")
+	duplicate := flag.String("duplicate", "move", "Duplication handling, default \"move\" (move, skip, delete)")
+
 	moveUnknown := flag.Bool("unknown", true, "Move files with no metadata to undetermined folder")
 	geoLocation := flag.Bool("location", false, "Organize files based on their geo location")
 	fileTypesString := flag.String("types", "", "Comma separated file extensions to organize (.jpg, .png, .gif, .mp4, .avi, .mov, .mkv)")
+
 	organisePhotos := flag.Bool("photo", true, "Organise only photos")
 	organiseVideos := flag.Bool("video", true, "Organise only videos")
-	format := flag.String("format", "word", "Naming format for month folders (word, number, combined)")
+
+	format := flag.String("format", "word", "Naming format for month folders, default \"word\" (word, number, combined)")
+
+	showHelp := flag.Bool("help", false, "Display usage guide")
 	verbose := flag.Bool("verbose", true, "Display progress information in console")
+	showVersion := flag.Bool("version", false, "Display version information")
 
 	flag.Parse()
 
@@ -82,7 +87,7 @@ func main() {
 	done := make(chan struct{})
 
 	go creator(sourcePath, fileInfoQueue, *geoLocation, *moveUnknown, fileTypes, *organisePhotos, *organiseVideos)
-	go consumer(destinationPath, fileInfoQueue, *geoLocation, *format, *verbose, totalFiles, done)
+	go consumer(destinationPath, fileInfoQueue, *geoLocation, *format, *verbose, totalFiles, *duplicate, done)
 
 	<-done
 }
@@ -118,7 +123,9 @@ func countFiles(rootPath string, fileTypes []string, organisePhotos bool, organi
 				count++
 			}
 		}
+
 		return nil
 	})
+
 	return count
 }
