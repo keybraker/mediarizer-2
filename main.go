@@ -10,17 +10,22 @@ import (
 )
 
 func main() {
-	showHelp := flag.Bool("help", false, "Display usage guide")
-	showVersion := flag.Bool("version", false, "Display version information")
 	inputPath := flag.String("input", "", "Path to source file or directory")
 	outputPath := flag.String("output", "", "Path to destination directory")
+	duplicateStrategy := flag.String("duplicate", "move", "Duplication handling, default \"move\" (move, skip, delete)")
+
 	moveUnknown := flag.Bool("unknown", true, "Move files with no metadata to undetermined folder")
 	geoLocation := flag.Bool("location", false, "Organize files based on their geo location")
 	fileTypesString := flag.String("types", "", "Comma separated file extensions to organize (.jpg, .png, .gif, .mp4, .avi, .mov, .mkv)")
+
 	organisePhotos := flag.Bool("photo", true, "Organise only photos")
 	organiseVideos := flag.Bool("video", true, "Organise only videos")
-	format := flag.String("format", "word", "Naming format for month folders (word, number, combined)")
-	verbose := flag.Bool("verbose", false, "Display progress information in console")
+
+	format := flag.String("format", "word", "Naming format for month folders, default \"word\" (word, number, combined)")
+
+	showHelp := flag.Bool("help", false, "Display usage guide")
+	verbose := flag.Bool("verbose", true, "Display progress information in console")
+	showVersion := flag.Bool("version", false, "Display version information")
 
 	flag.Parse()
 
@@ -78,18 +83,26 @@ func main() {
 		totalFiles = countFiles(sourcePath, fileTypes, *organisePhotos, *organiseVideos)
 	}
 
-	fileInfoQueue := make(chan FileInfo)
+	fileInfoQueue := make(chan FileInfo, 100)
 	done := make(chan struct{})
+	errCh := make(chan error)
+
+	go func() {
+		for err := range errCh {
+			fmt.Printf("Error: %v\n", err)
+		}
+	}()
 
 	go creator(sourcePath, fileInfoQueue, *geoLocation, *moveUnknown, fileTypes, *organisePhotos, *organiseVideos)
-	go consumer(destinationPath, fileInfoQueue, *geoLocation, *format, *verbose, totalFiles, done)
+	go consumer(destinationPath, fileInfoQueue, *geoLocation, *format, *verbose, totalFiles, *duplicateStrategy, done, errCh)
+
+	close(errCh)
 
 	<-done
 }
 
 func displayHelp() {
-	fmt.Println("Usage: mediarizer [flags]")
-	fmt.Println("Flags:")
+	fmt.Println("Mediarizer 2 Flags:")
 	flag.PrintDefaults()
 }
 
@@ -118,7 +131,9 @@ func countFiles(rootPath string, fileTypes []string, organisePhotos bool, organi
 				count++
 			}
 		}
+
 		return nil
 	})
+
 	return count
 }
