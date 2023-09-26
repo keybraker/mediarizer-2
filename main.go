@@ -12,7 +12,7 @@ import (
 func main() {
 	inputPath := flag.String("input", "", "Path to source file or directory")
 	outputPath := flag.String("output", "", "Path to destination directory")
-	duplicate := flag.String("duplicate", "move", "Duplication handling, default \"move\" (move, skip, delete)")
+	duplicateStrategy := flag.String("duplicate", "move", "Duplication handling, default \"move\" (move, skip, delete)")
 
 	moveUnknown := flag.Bool("unknown", true, "Move files with no metadata to undetermined folder")
 	geoLocation := flag.Bool("location", false, "Organize files based on their geo location")
@@ -87,7 +87,7 @@ func main() {
 	done := make(chan struct{})
 
 	go creator(sourcePath, fileInfoQueue, *geoLocation, *moveUnknown, fileTypes, *organisePhotos, *organiseVideos)
-	go consumer(destinationPath, fileInfoQueue, *geoLocation, *format, *verbose, totalFiles, *duplicate, done)
+	go consumer(destinationPath, fileInfoQueue, *geoLocation, *format, *verbose, totalFiles, *duplicateStrategy, done)
 
 	<-done
 }

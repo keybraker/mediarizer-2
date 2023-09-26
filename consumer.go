@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-func consumer(destinationPath string, fileInfoQueue <-chan FileInfo, geoLocation bool, format string, verbose bool, totalFiles int, duplicate string, done chan<- struct{}) {
+func consumer(destinationPath string, fileInfoQueue <-chan FileInfo, geoLocation bool, format string, verbose bool, totalFiles int, duplicateStrategy string, done chan<- struct{}) {
 	processedImages := list.New()
 	processedFiles := 0
 
@@ -43,7 +43,7 @@ func consumer(destinationPath string, fileInfoQueue <-chan FileInfo, geoLocation
 			}
 		}
 
-		if err := moveFile(fileInfo.Path, destPath, verbose, processedImages, processedFiles, totalFiles, duplicate); err != nil {
+		if err := moveFile(fileInfo.Path, destPath, verbose, processedImages, processedFiles, totalFiles, duplicateStrategy); err != nil {
 			fmt.Printf("failed to move %s to %s: %v\n", fileInfo.Path, destPath, err)
 		}
 
@@ -81,7 +81,7 @@ func calculateFileHash(filePath string) ([]byte, error) {
 	return hash.Sum(nil), nil
 }
 
-func moveFile(sourcePath, destPath string, verbose bool, processedImages *list.List, processedFiles int, totalFiles int, duplicate string) error {
+func moveFile(sourcePath, destPath string, verbose bool, processedImages *list.List, processedFiles int, totalFiles int, duplicateStrategy string) error {
 	err := createDestinationDirectory(filepath.Dir(destPath))
 	if err != nil {
 		return err
@@ -99,7 +99,7 @@ func moveFile(sourcePath, destPath string, verbose bool, processedImages *list.L
 
 	duplicateFileName := findDuplicateFile(sourceHash, destFiles, filepath.Dir(destPath))
 	if duplicateFileName != "" {
-		switch duplicate {
+		switch duplicateStrategy {
 		case "move":
 			destPath, err = handleDuplicates(destPath, duplicateFileName)
 			if err != nil {
@@ -112,7 +112,7 @@ func moveFile(sourcePath, destPath string, verbose bool, processedImages *list.L
 				return err
 			}
 		default:
-			return fmt.Errorf("invalid duplicate flag value")
+			return fmt.Errorf("invalid duplicateStrategy flag value")
 		}
 	} else {
 		_, err := os.Stat(destPath)
@@ -131,7 +131,7 @@ func moveFile(sourcePath, destPath string, verbose bool, processedImages *list.L
 		fileName := filepath.Base(sourcePath)
 
 		if duplicateFileName != "" {
-			switch duplicate {
+			switch duplicateStrategy {
 			case "move":
 				colorCode = "\033[33m"
 				actionName = "Moved (duplicate)"
