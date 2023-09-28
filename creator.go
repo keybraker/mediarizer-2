@@ -22,11 +22,12 @@ func creator(
 	fileTypesToInclude []string,
 	organisePhotos bool,
 	organiseVideos bool,
+	errorQueue chan<- error,
 ) {
 	filepath.WalkDir(sourcePath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			fmt.Println(err)
-			return err
+			errorQueue <- err
+			return nil
 		}
 
 		if !os.FileMode(d.Type()).IsRegular() {
@@ -39,13 +40,14 @@ func creator(
 			if moveUnknown {
 				fileInfoQueue <- FileInfo{Path: path, FileType: Unknown}
 			}
+
 			return nil
 		}
 
 		if geoLocation {
 			country, err := getCountry(path)
 			if err != nil {
-				fmt.Println(err)
+				errorQueue <- err
 				return nil
 			}
 
@@ -53,13 +55,13 @@ func creator(
 				fileInfoQueue <- FileInfo{Path: path, FileType: fileType, Country: country}
 			}
 		} else {
-			createdDate, hasCreationDate, err := getCreatedTime(path)
-			if err != nil {
-				fmt.Println(err)
-				return nil
-			}
-
 			if fileType != FileTypeExcluded {
+				createdDate, hasCreationDate, err := getCreatedTime(path)
+				if err != nil {
+					errorQueue <- err
+					return nil
+				}
+
 				fileInfoQueue <- FileInfo{Path: path, FileType: fileType, Created: createdDate, HasCreationDate: hasCreationDate}
 			}
 		}
@@ -67,7 +69,7 @@ func creator(
 		return nil
 	})
 
-	close(fileInfoQueue)
+	defer close(fileInfoQueue)
 }
 
 func getFileType(path string, fileTypesToInclude []string, organisePhotos bool, organiseVideos bool) FileType {

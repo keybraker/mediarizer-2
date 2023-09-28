@@ -1,64 +1,115 @@
 package main
 
 import (
-	"bytes"
 	"container/list"
-	"crypto/sha256"
 	"fmt"
-	"hash/fnv"
-	"io"
-	"io/fs"
+	"log"
 	"math"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 )
 
 const BlockSize = 4096 // 4KB
 
-func consumer(destinationPath string, fileInfoQueue <-chan FileInfo, geoLocation bool, format string, verbose bool, totalFiles int, duplicateStrategy string, done chan<- struct{}, errCh chan<- error) {
-	var hashCache sync.Map // Cache for file hashes
+func generateDestinationPath(
+	destinationPath string,
+	fileInfo FileInfo,
+	geoLocation bool,
+	format string,
+) (string, error) {
+	if geoLocation {
+		switch fileInfo.FileType {
+		case FileTypeImage:
+			return fmt.Sprintf("%s/%s/images/%s", destinationPath, fileInfo.Country, filepath.Base(fileInfo.Path)), nil
+		case FileTypeVideo:
+			return fmt.Sprintf("%s/%s/videos/%s", destinationPath, fileInfo.Country, filepath.Base(fileInfo.Path)), nil
+		case FileTypeUnknown:
+			return fmt.Sprintf("%s/unknown/%s", destinationPath, filepath.Base(fileInfo.Path)), nil
+		}
+	} else {
+		monthFolderName := monthFolder(fileInfo.Created.Month(), format)
+
+		switch fileInfo.FileType {
+		case FileTypeImage:
+			return fmt.Sprintf("%s/%04d/%s/images/%s", destinationPath, fileInfo.Created.Year(), monthFolderName, filepath.Base(fileInfo.Path)), nil
+		case FileTypeVideo:
+			return fmt.Sprintf("%s/%04d/%s/videos/%s", destinationPath, fileInfo.Created.Year(), monthFolderName, filepath.Base(fileInfo.Path)), nil
+		case FileTypeUnknown:
+			return fmt.Sprintf("%s/unknown/%s", destinationPath, filepath.Base(fileInfo.Path)), nil
+		}
+	}
+
+	return "", fmt.Errorf("failed to generate destination path for %s", fileInfo.Path)
+}
+
+func consumer(
+	destinationPath string,
+	fileInfoQueue <-chan FileInfo,
+	geoLocation bool,
+	format string,
+	verbose bool,
+	totalFiles int,
+	duplicateStrategy string,
+	errorQueue chan<- error,
+	done chan<- struct{},
+) {
+	var hashCache sync.Map
+
 	processedImages := list.New()
 	processedFiles := 0
 
 	for fileInfo := range fileInfoQueue {
-		var destPath string
-
-		go func(fileInfo FileInfo, destPath string) {
-			sourceHash, err := getOrCalculateFileHash(fileInfo.Path, &hashCache)
+		go func(fileInfo FileInfo) {
+			destPath, err := generateDestinationPath(destinationPath, fileInfo, geoLocation, format)
 			if err != nil {
-				errCh <- fmt.Errorf("failed to calculate source file hash: %v", err)
-				return
+				errorQueue <- err
+			}
+			destDir := filepath.Dir(destPath)
+
+			destFiles, err := os.ReadDir(destDir)
+			if err != nil {
+				errorQueue <- fmt.Errorf("failed to read destination directory: %v", err)
 			}
 
-			if geoLocation {
-				switch fileInfo.FileType {
-				case FileTypeImage:
-					destPath = fmt.Sprintf("%s/%s/images/%s", destinationPath, fileInfo.Country, filepath.Base(fileInfo.Path))
-				case FileTypeVideo:
-					destPath = fmt.Sprintf("%s/%s/videos/%s", destinationPath, fileInfo.Country, filepath.Base(fileInfo.Path))
-				case FileTypeUnknown:
-					destPath = fmt.Sprintf("%s/unknown/%s", destinationPath, filepath.Base(fileInfo.Path))
+			duplicateFileName, err := findDuplicateFile(fileInfo.Path, destFiles, destDir, &hashCache)
+			if err != nil {
+				errorQueue <- err
+			}
+
+			if duplicateFileName != "" {
+				switch duplicateStrategy {
+				case "move":
+					destPath, err = handleDuplicates(destPath, duplicateFileName)
+					if err != nil {
+						errorQueue <- err
+					}
+				case "skip":
+					return
+				case "delete":
+					err := os.Remove(fileInfo.Path)
+					if err != nil {
+						errorQueue <- err
+					}
+					return
+				default:
+					panic("invalid duplicateStrategy flag value")
 				}
 			} else {
-				monthFolderName := monthFolder(fileInfo.Created.Month(), format)
-
-				switch fileInfo.FileType {
-				case FileTypeImage:
-					destPath = fmt.Sprintf("%s/%04d/%s/images/%s", destinationPath, fileInfo.Created.Year(), monthFolderName, filepath.Base(fileInfo.Path))
-				case FileTypeVideo:
-					destPath = fmt.Sprintf("%s/%04d/%s/videos/%s", destinationPath, fileInfo.Created.Year(), monthFolderName, filepath.Base(fileInfo.Path))
-				case FileTypeUnknown:
-					destPath = fmt.Sprintf("%s/unknown/%s", destinationPath, filepath.Base(fileInfo.Path))
+				_, err := os.Stat(destPath)
+				if !os.IsNotExist(err) {
+					destPath, err = generateUniqueName(destPath)
+					if err != nil {
+						errorQueue <- err
+					}
 				}
 			}
 
-			if err := moveFile(fileInfo.Path, destPath, verbose, processedImages, processedFiles, totalFiles, sourceHash, &hashCache, duplicateStrategy); err != nil {
-				fmt.Printf("failed to move %s to %s: %v\n", fileInfo.Path, destPath, err)
+			if err := moveFile(fileInfo.Path, destPath, verbose, processedImages, processedFiles, totalFiles, duplicateStrategy); err != nil {
+				errorQueue <- fmt.Errorf("failed to move %s to %s: %v", fileInfo.Path, destPath, err)
 			}
-		}(fileInfo, destPath)
+		}(fileInfo)
 
 		processedFiles++
 		if processedFiles%10 == 0 { // Every 10 files, sleep to let I/O catch up
@@ -82,173 +133,79 @@ func monthFolder(month time.Month, format string) string {
 	}
 }
 
-// func calculateFileHash(filePath string) ([]byte, error) {
-// 	file, err := os.Open(filePath)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	defer file.Close()
+func logAction(sourcePath, destDir string, isDuplicate bool, duplicateStrategy string, processedFiles int, totalFiles int) {
+	colorCode := "\033[32m"
+	actionName := "Moved (original)"
 
-// 	hash := sha256.New()
-// 	if _, err := io.Copy(hash, file); err != nil {
-// 		return nil, err
-// 	}
+	fileName := filepath.Base(sourcePath)
 
-// 	return hash.Sum(nil), nil
-// }
-
-func calculateFileHash(filePath string) (uint32, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return 0, err
-	}
-	defer file.Close()
-
-	hasher := fnv.New32a()
-
-	// Read first N bytes
-	firstBlock := make([]byte, BlockSize)
-	_, err = file.Read(firstBlock)
-	if err != nil {
-		return 0, err
-	}
-	hasher.Write(firstBlock)
-
-	// Move to the last N bytes
-	_, err = file.Seek(-BlockSize, os.SEEK_END)
-	if err != nil {
-		return 0, err
+	if isDuplicate {
+		switch duplicateStrategy {
+		case "move":
+			colorCode = "\033[33m"
+			actionName = "Moved (duplicate)"
+		case "skip":
+			colorCode = "\033[34m"
+			actionName = "Skipped (duplicate)"
+		case "delete":
+			colorCode = "\033[31m"
+			actionName = "Deleted (duplicate)"
+			log.Printf("\033[1m%s%s\033[0m %s\n", colorCode, actionName, fileName)
+			return
+		default:
+			colorCode = "\033[35m"
+			actionName = "Unknown Operation"
+		}
 	}
 
-	// Read last N bytes
-	lastBlock := make([]byte, BlockSize)
-	_, err = file.Read(lastBlock)
-	if err != nil {
-		return 0, err
-	}
-	hasher.Write(lastBlock)
+	const maxPathLength = 90
+	var source, dest string
 
-	return hasher.Sum32(), nil
+	fileInfo, err := os.Stat(sourcePath)
+	if err != nil {
+		return
+	}
+
+	fileSizeMB := float64(fileInfo.Size()) / 1024.0 / 1024.0
+	fileSizeStr := fmt.Sprintf("%.2fMb", fileSizeMB)
+
+	sourceDir := filepath.Dir(sourcePath)
+	if len(sourceDir) > maxPathLength {
+		source = "..." + sourceDir[len(sourceDir)-maxPathLength:]
+	} else {
+		source = sourceDir
+	}
+
+	if len(destDir) > maxPathLength {
+		dest = "..." + destDir[len(destDir)-maxPathLength:]
+	} else {
+		dest = destDir
+	}
+
+	percentage := math.Min(100, float64(processedFiles+1)/float64(totalFiles)*100)
+	if percentage < 10.00 {
+		log.Printf("\033[1m[0%.2f%% | %s] %s%s\033[0m %s\n └─ from %s%s\033[0m\n └─── to %s%s\033[0m\n", percentage, fileSizeStr, colorCode, actionName, fileName, colorCode, source, colorCode, dest)
+	} else {
+		log.Printf("\033[1m[%.2f%% | %s] %s%s\033[0m %s\n └─ from %s%s\033[0m\n └─── to %s%s\033[0m\n", percentage, fileSizeStr, colorCode, actionName, fileName, colorCode, source, colorCode, dest)
+	}
 }
 
-func getOrCalculateFileHash(filePath string, hashCache *sync.Map) ([]byte, error) {
-	if hash, found := hashCache.Load(filePath); found {
-		return hash.([]byte), nil
-	}
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return nil, err
-	}
-	calculatedHash := hash.Sum(nil)
-	hashCache.Store(filePath, calculatedHash)
-	return calculatedHash, nil
-}
-
-func moveFile(sourcePath, destPath string, verbose bool, processedImages *list.List, processedFiles int, totalFiles int, sourceHash []byte, hashCache *sync.Map, duplicateStrategy string) error {
+func moveFile(
+	sourcePath,
+	destPath string,
+	verbose bool,
+	processedImages *list.List,
+	processedFiles int,
+	totalFiles int,
+	duplicateStrategy string,
+) error {
 	err := createDestinationDirectory(filepath.Dir(destPath))
 	if err != nil {
 		return err
 	}
 
-	// sourceHash, err := calculateFileHash(sourcePath)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to calculate source file hash: %v", err)
-	// }
-
-	destFiles, err := os.ReadDir(filepath.Dir(destPath))
-	if err != nil {
-		return fmt.Errorf("failed to read destination directory: %v", err)
-	}
-
-	duplicateFileName := findDuplicateFile(sourceHash, destFiles, filepath.Dir(destPath), hashCache)
-	if duplicateFileName != "" {
-		switch duplicateStrategy {
-		case "move":
-			destPath, err = handleDuplicates(destPath, duplicateFileName)
-			if err != nil {
-				return err
-			}
-		case "skip":
-		case "delete":
-			err := os.Remove(sourcePath)
-			if err != nil {
-				return err
-			}
-		default:
-			return fmt.Errorf("invalid duplicateStrategy flag value")
-		}
-	} else {
-		_, err := os.Stat(destPath)
-		if !os.IsNotExist(err) {
-			destPath, err = generateUniqueName(destPath)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
 	if verbose {
-		colorCode := "\033[32m"
-		actionName := "Moved (original)"
-
-		fileName := filepath.Base(sourcePath)
-
-		if duplicateFileName != "" {
-			switch duplicateStrategy {
-			case "move":
-				colorCode = "\033[33m"
-				actionName = "Moved (duplicate)"
-			case "skip":
-				colorCode = "\033[34m"
-				actionName = "Skipped (duplicate)"
-			case "delete":
-				colorCode = "\033[31m"
-				actionName = "Deleted (duplicate)"
-				fmt.Printf("\033[1m%s%s\033[0m %s\n", colorCode, actionName, fileName)
-				return nil
-			default:
-				colorCode = "\033[35m"
-				actionName = "Unknown Operation"
-			}
-		}
-
-		const maxPathLength = 90
-		var source, dest string
-
-		fileInfo, err := os.Stat(sourcePath)
-		if err != nil {
-			return err
-		}
-
-		fileSizeMB := float64(fileInfo.Size()) / 1024.0 / 1024.0
-		fileSizeStr := fmt.Sprintf("%.2fMb", fileSizeMB)
-
-		sourceDir := filepath.Dir(sourcePath)
-		if len(sourceDir) > maxPathLength {
-			source = "..." + sourceDir[len(sourceDir)-maxPathLength:]
-		} else {
-			source = sourceDir
-		}
-
-		destDir := filepath.Dir(destPath)
-		if len(destDir) > maxPathLength {
-			dest = "..." + destDir[len(destDir)-maxPathLength:]
-		} else {
-			dest = destDir
-		}
-
-		percentage := math.Min(100, float64(processedFiles+1)/float64(totalFiles)*100)
-		if percentage < 10.00 {
-			fmt.Printf("\033[1m[0%.2f%% | %s] %s%s\033[0m %s\n └─ from %s%s\033[0m\n └─── to %s%s\033[0m\n", percentage, fileSizeStr, colorCode, actionName, fileName, colorCode, source, colorCode, dest)
-		} else {
-			fmt.Printf("\033[1m[%.2f%% | %s] %s%s\033[0m %s\n └─ from %s%s\033[0m\n └─── to %s%s\033[0m\n", percentage, fileSizeStr, colorCode, actionName, fileName, colorCode, source, colorCode, dest)
-		}
+		logAction(sourcePath, filepath.Dir(destPath), false, duplicateStrategy, processedFiles, totalFiles)
 	}
 
 	err = renameFile(sourcePath, destPath)
@@ -264,40 +221,6 @@ func createDestinationDirectory(destDir string) error {
 		return fmt.Errorf("failed to create destination directory %s: %v", destDir, err)
 	}
 	return nil
-}
-
-func findDuplicateFile(sourceHash []byte, destFiles []fs.DirEntry, destDir string, hashCache *sync.Map) string {
-	for _, destFile := range destFiles {
-		destFilePath := filepath.Join(destDir, destFile.Name())
-		// destHash, err := calculateFileHash(destFilePath)
-		// if err != nil {
-		// 	return ""
-		// }
-		destHash, err := getOrCalculateFileHash(destFilePath, hashCache)
-		if err != nil {
-			return ""
-		}
-
-		if bytes.Equal(sourceHash, destHash) {
-			return destFile.Name()
-		}
-	}
-
-	return ""
-}
-
-func handleDuplicates(destPath, duplicateFileName string) (string, error) {
-	ext := filepath.Ext(duplicateFileName)
-	nameWithoutExt := duplicateFileName[:len(duplicateFileName)-len(ext)]
-	underscoreExt := strings.ReplaceAll(ext, ".", "_")
-	duplicatesFolder := filepath.Join(filepath.Dir(destPath), fmt.Sprintf("%s%s_duplicates", nameWithoutExt, underscoreExt))
-
-	err := createDestinationDirectory(duplicatesFolder)
-	if err != nil {
-		return "", err
-	}
-
-	return filepath.Join(duplicatesFolder, filepath.Base(destPath)), nil
 }
 
 func renameFile(sourcePath, destPath string) error {
