@@ -5,8 +5,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
-	"sync"
 )
 
 var (
@@ -96,21 +96,24 @@ func main() {
 		totalFiles = countFiles(sourcePath, fileTypes, *organisePhotos, *organiseVideos)
 	}
 
-	fileInfoQueue := make(chan FileInfo, 100)
+	fileQueue := make(chan FileInfo, 100)
 	errorQueue := make(chan error, 100)
+	defer close(errorQueue)
+
 	done := make(chan struct{})
 
 	go errorHandler(errorQueue)
 
-	go creator(sourcePath, fileInfoQueue, *geoLocation, *moveUnknown, fileTypes, *organisePhotos, *organiseVideos, errorQueue)
-	go consumer(destinationPath, fileInfoQueue, *geoLocation, *format, *verbose, totalFiles, *duplicateStrategy, errorQueue, done)
-
-	defer close(errorQueue)
+	go creator(sourcePath, fileQueue, errorQueue, *geoLocation, *moveUnknown, fileTypes, *organisePhotos, *organiseVideos)
+	go consumer(destinationPath, fileQueue, errorQueue, *geoLocation, *format, *verbose, totalFiles, *duplicateStrategy, done)
 
 	<-done
 
-	hashCache := &sync.Map{}
-	findDuplicates(destinationPath, hashCache)
+	log.Println("Processed " + strconv.Itoa(totalFiles) + " files")
+
+	if *duplicateStrategy != "skip" {
+		processDuplicates(destinationPath, *duplicateStrategy, *verbose, errorQueue)
+	}
 }
 
 func errorHandler(errorQueue chan error) {

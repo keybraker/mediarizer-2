@@ -1,52 +1,91 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"fmt"
 	"io"
-	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 )
 
-func findDuplicates(directoryPath string, hashCache *sync.Map) {
-	// Key: file hash, Value: slice of file paths
+func processDuplicates(directoryPath string, duplicateStrategy string, verbose bool, errorQueue chan<- error) {
+	hashCache := &sync.Map{}
 	fileHashMap := make(map[string][]string)
+	totalFiles := 0
 
-	err := filepath.Walk(directoryPath, func(path string, info fs.FileInfo, err error) error {
+	log.Println("Duplicate handling started")
+
+	err := filepath.Walk(directoryPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			errorQueue <- err
+			return nil
 		}
 
 		if !info.IsDir() {
 			fileHash, err := getFileHash(path, hashCache)
 			if err != nil {
-				return err
+				errorQueue <- err
+				return nil
 			}
 
 			hashStr := fmt.Sprintf("%x", fileHash)
 
 			fileHashMap[hashStr] = append(fileHashMap[hashStr], path)
+			totalFiles++
 		}
 
 		return nil
 	})
-
 	if err != nil {
-		fmt.Printf("An error occurred: %v\n", err)
+		errorQueue <- err
 		return
 	}
 
-	// Identify duplicates
-	for hash, files := range fileHashMap {
-		if len(files) > 1 {
-			fmt.Printf("Duplicate files found for hash %s: %v\n", hash, files)
-			// Further actions like deletion can be implemented here
+	log.Println("Duplicates located")
+
+	processedFiles := 0
+	for _, files := range fileHashMap {
+		if len(files) <= 1 {
+			continue
+		}
+
+		for i, filePath := range files {
+			if i == 0 {
+				continue // Skip the first file
+			}
+
+			switch duplicateStrategy {
+			case "move":
+				destPath, err := handleDuplicates(filePath, "duplicates")
+				if err != nil {
+					errorQueue <- err
+				}
+
+				err = moveFile(filePath, destPath, verbose, nil, processedFiles, totalFiles, duplicateStrategy)
+				if err != nil {
+					errorQueue <- err
+				} else {
+					logAction(filePath, destPath, true, duplicateStrategy, processedFiles, totalFiles)
+				}
+			case "delete":
+				err := os.Remove(filePath)
+				if err != nil {
+					errorQueue <- err
+				} else {
+					logAction(filePath, "", true, duplicateStrategy, processedFiles, totalFiles)
+				}
+			default:
+				panic("invalid duplicateStrategy flag value")
+			}
+
+			processedFiles++
 		}
 	}
+
+	log.Println("Duplicates handling finished")
 }
 
 // func calculateFileHash(filePath string) (uint32, error) {
@@ -111,33 +150,11 @@ func getFileHash(filePath string, hashCache *sync.Map) ([]byte, error) {
 	return calculatedHash, nil
 }
 
-func findDuplicateFile(sourcePath string, destFiles []fs.DirEntry, destDir string, hashCache *sync.Map) (string, error) {
-	sourceHash, err := getFileHash(sourcePath, hashCache)
-	if err != nil {
-		return "", err
-	}
-
-	for _, destFile := range destFiles {
-		destFilePath := filepath.Join(destDir, destFile.Name())
-
-		destHash, err := getFileHash(destFilePath, hashCache)
-		if err != nil {
-			return "", err
-		}
-
-		if bytes.Equal(sourceHash, destHash) {
-			return destFile.Name(), nil
-		}
-	}
-
-	return "", nil
-}
-
 func handleDuplicates(destPath, duplicateFileName string) (string, error) {
 	ext := filepath.Ext(duplicateFileName)
 	nameWithoutExt := duplicateFileName[:len(duplicateFileName)-len(ext)]
 	underscoreExt := strings.ReplaceAll(ext, ".", "_")
-	duplicatesFolder := filepath.Join(filepath.Dir(destPath), fmt.Sprintf("%s%s_duplicates", nameWithoutExt, underscoreExt))
+	duplicatesFolder := filepath.Join(filepath.Dir(destPath), fmt.Sprintf("%s%s", nameWithoutExt, underscoreExt))
 
 	err := createDestinationDirectory(duplicatesFolder)
 	if err != nil {

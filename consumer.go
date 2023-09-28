@@ -7,7 +7,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 )
 
@@ -46,63 +45,30 @@ func generateDestinationPath(
 
 func consumer(
 	destinationPath string,
-	fileInfoQueue <-chan FileInfo,
+	fileQueue <-chan FileInfo,
+	errorQueue chan<- error,
 	geoLocation bool,
 	format string,
 	verbose bool,
 	totalFiles int,
 	duplicateStrategy string,
-	errorQueue chan<- error,
 	done chan<- struct{},
 ) {
-	var hashCache sync.Map
-
 	processedImages := list.New()
 	processedFiles := 0
 
-	for fileInfo := range fileInfoQueue {
+	for fileInfo := range fileQueue {
 		go func(fileInfo FileInfo) {
 			destPath, err := generateDestinationPath(destinationPath, fileInfo, geoLocation, format)
 			if err != nil {
 				errorQueue <- err
 			}
-			destDir := filepath.Dir(destPath)
 
-			destFiles, err := os.ReadDir(destDir)
-			if err != nil {
-				errorQueue <- fmt.Errorf("failed to read destination directory: %v", err)
-			}
-
-			duplicateFileName, err := findDuplicateFile(fileInfo.Path, destFiles, destDir, &hashCache)
-			if err != nil {
-				errorQueue <- err
-			}
-
-			if duplicateFileName != "" {
-				switch duplicateStrategy {
-				case "move":
-					destPath, err = handleDuplicates(destPath, duplicateFileName)
-					if err != nil {
-						errorQueue <- err
-					}
-				case "skip":
-					return
-				case "delete":
-					err := os.Remove(fileInfo.Path)
-					if err != nil {
-						errorQueue <- err
-					}
-					return
-				default:
-					panic("invalid duplicateStrategy flag value")
-				}
-			} else {
-				_, err := os.Stat(destPath)
-				if !os.IsNotExist(err) {
-					destPath, err = generateUniqueName(destPath)
-					if err != nil {
-						errorQueue <- err
-					}
+			_, err = os.Stat(destPath)
+			if !os.IsNotExist(err) {
+				destPath, err = generateUniqueName(destPath)
+				if err != nil {
+					errorQueue <- err
 				}
 			}
 
