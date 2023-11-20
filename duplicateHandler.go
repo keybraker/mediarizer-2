@@ -11,9 +11,14 @@ import (
 	"sync"
 )
 
-func processDuplicates(directoryPath string, duplicateStrategy string, verbose bool, errorQueue chan<- error) {
+func processDuplicates(
+	directoryPath string,
+	duplicateStrategy string,
+	verbose bool,
+	fileHashMap map[string][]string,
+	errorQueue chan<- error,
+) {
 	hashCache := &sync.Map{}
-	fileHashMap := make(map[string][]string)
 	totalFiles := 0
 
 	log.Println("Duplicate handling started")

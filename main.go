@@ -39,9 +39,7 @@ func init() {
 	showVersion = flag.Bool("version", false, "Display version information")
 }
 
-func main() {
-	flag.Parse()
-
+func flagProcessor() []string {
 	if *showHelp {
 		displayHelp()
 		os.Exit(0)
@@ -81,6 +79,13 @@ func main() {
 		loadFeatureCollection()
 	}
 
+	return fileTypes
+}
+
+func main() {
+	flag.Parse()
+	fileTypes := flagProcessor()
+
 	sourcePath := filepath.Clean(*inputPath)
 	destinationPath := filepath.Clean(*outputPath)
 
@@ -96,6 +101,8 @@ func main() {
 		totalFiles = countFiles(sourcePath, fileTypes, *organisePhotos, *organiseVideos)
 	}
 
+	fileHashMap := make(map[string][]string)
+
 	fileQueue := make(chan FileInfo, 100)
 	errorQueue := make(chan error, 100)
 	defer close(errorQueue)
@@ -104,7 +111,7 @@ func main() {
 
 	go errorHandler(errorQueue)
 
-	go creator(sourcePath, fileQueue, errorQueue, *geoLocation, *moveUnknown, fileTypes, *organisePhotos, *organiseVideos)
+	go creator(sourcePath, fileQueue, errorQueue, *geoLocation, *moveUnknown, fileTypes, *organisePhotos, *organiseVideos, fileHashMap)
 	go consumer(destinationPath, fileQueue, errorQueue, *geoLocation, *format, *verbose, totalFiles, *duplicateStrategy, done)
 
 	<-done
@@ -112,7 +119,7 @@ func main() {
 	log.Println("Processed " + strconv.Itoa(totalFiles) + " files")
 
 	if *duplicateStrategy != "skip" {
-		processDuplicates(destinationPath, *duplicateStrategy, *verbose, errorQueue)
+		processDuplicates(destinationPath, *duplicateStrategy, *verbose, fileHashMap, errorQueue)
 	}
 }
 

@@ -7,12 +7,26 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rwcarlsen/goexif/exif"
 )
 
 var featureCollection FeatureCollection
+
+func fileHashMemory(sourcePath, destinationPath string, fileHashMap map[string][]string, hashCache *sync.Map, errorQueue chan<- error) {
+	fileHash, err := getFileHash(sourcePath, hashCache)
+	if err != nil {
+		errorQueue <- err
+	}
+
+	hashStr := fmt.Sprintf("%x", fileHash)
+
+	fileHashMap[hashStr] = append(fileHashMap[hashStr], destinationPath)
+
+	return
+}
 
 func creator(
 	sourcePath string,
@@ -23,7 +37,10 @@ func creator(
 	fileTypesToInclude []string,
 	organisePhotos bool,
 	organiseVideos bool,
+	fileHashMap map[string][]string,
 ) {
+	hashCache := &sync.Map{}
+
 	filepath.WalkDir(sourcePath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			errorQueue <- err
@@ -52,6 +69,9 @@ func creator(
 			}
 
 			if fileType != FileTypeExcluded {
+				if duplicateStrategy != skip {
+					fileHashMemory()
+				}
 				fileQueue <- FileInfo{Path: path, FileType: fileType, Country: country}
 			}
 		} else {
@@ -62,6 +82,9 @@ func creator(
 					return nil
 				}
 
+				if duplicateStrategy != skip {
+					fileHashMemory()
+				}
 				fileQueue <- FileInfo{Path: path, FileType: fileType, Created: createdDate, HasCreationDate: hasCreationDate}
 			}
 		}
