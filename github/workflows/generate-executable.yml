@@ -1,0 +1,31 @@
+name: Build
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [windows, linux]
+        goarch: [amd64]
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: "1.20"
+
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      - name: Build
+        run: |
+          env GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -v -o myapp-${{ matrix.goos }}-${{ matrix.goarch }}
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: myapp-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: myapp-${{ matrix.goos }}-${{ matrix.goarch }}
