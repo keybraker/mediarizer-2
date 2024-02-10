@@ -2,40 +2,51 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
-func main() {
-	inputPath := flag.String("input", "", "Path to source file or directory")
-	outputPath := flag.String("output", "", "Path to destination directory")
-	duplicateStrategy := flag.String("duplicate", "move", "Duplication handling, default \"move\" (move, skip, delete)")
+var (
+	inputPath         *string
+	outputPath        *string
+	duplicateStrategy *string
+	moveUnknown       *bool
+	geoLocation       *bool
+	fileTypesString   *string
+	organisePhotos    *bool
+	organiseVideos    *bool
+	format            *string
+	showHelp          *bool
+	verbose           *bool
+	showVersion       *bool
+)
 
-	moveUnknown := flag.Bool("unknown", true, "Move files with no metadata to undetermined folder")
-	geoLocation := flag.Bool("location", false, "Organize files based on their geo location")
-	fileTypesString := flag.String("types", "", "Comma separated file extensions to organize (.jpg, .png, .gif, .mp4, .avi, .mov, .mkv)")
+func init() {
+	inputPath = flag.String("input", "", "Path to source file or directory")
+	outputPath = flag.String("output", "", "Path to destination directory")
+	duplicateStrategy = flag.String("duplicate", "move", "Duplication handling, default \"move\" (move, skip, delete)")
+	moveUnknown = flag.Bool("unknown", true, "Move files with no metadata to undetermined folder")
+	geoLocation = flag.Bool("location", false, "Organize files based on their geo location")
+	fileTypesString = flag.String("types", "", "Comma separated file extensions to organize (.jpg, .png, .gif, .mp4, .avi, .mov, .mkv)")
+	organisePhotos = flag.Bool("photo", true, "Organise only photos")
+	organiseVideos = flag.Bool("video", true, "Organise only videos")
+	format = flag.String("format", "word", "Naming format for month folders, default \"word\" (word, number, combined)")
+	showHelp = flag.Bool("help", false, "Display usage guide")
+	verbose = flag.Bool("verbose", true, "Display progress information in console")
+	showVersion = flag.Bool("version", false, "Display version information")
+}
 
-	organisePhotos := flag.Bool("photo", true, "Organise only photos")
-	organiseVideos := flag.Bool("video", true, "Organise only videos")
-
-	format := flag.String("format", "word", "Naming format for month folders, default \"word\" (word, number, combined)")
-
-	showHelp := flag.Bool("help", false, "Display usage guide")
-	verbose := flag.Bool("verbose", true, "Display progress information in console")
-	showVersion := flag.Bool("version", false, "Display version information")
-
-	flag.Parse()
-
+func flagProcessor() []string {
 	if *showHelp {
 		displayHelp()
 		os.Exit(0)
 	}
 
 	if *showVersion {
-		fmt.Println("Mediarizer 2 version 1.0.0")
+		log.Println("v1.0.0")
 		os.Exit(0)
 	}
 
@@ -68,13 +79,20 @@ func main() {
 		loadFeatureCollection()
 	}
 
+	return fileTypes
+}
+
+func main() {
+	flag.Parse()
+	fileTypes := flagProcessor()
+
 	sourcePath := filepath.Clean(*inputPath)
 	destinationPath := filepath.Clean(*outputPath)
 
 	sourceDrive := filepath.VolumeName(sourcePath)
-	destDrive := filepath.VolumeName(destinationPath)
+	destinationDrive := filepath.VolumeName(destinationPath)
 
-	if sourceDrive != "" && destDrive != "" && sourceDrive != destDrive {
+	if sourceDrive != "" && destinationDrive != "" && sourceDrive != destinationDrive {
 		log.Fatal("error: input and output paths must be on the same disk drive")
 	}
 
@@ -83,43 +101,53 @@ func main() {
 		totalFiles = countFiles(sourcePath, fileTypes, *organisePhotos, *organiseVideos)
 	}
 
-	fileInfoQueue := make(chan FileInfo)
+	fileQueue := make(chan FileInfo, 100)
+
 	done := make(chan struct{})
 
-	go creator(sourcePath, fileInfoQueue, *geoLocation, *moveUnknown, fileTypes, *organisePhotos, *organiseVideos)
-	go consumer(destinationPath, fileInfoQueue, *geoLocation, *format, *verbose, totalFiles, *duplicateStrategy, done)
+	go creator(sourcePath, fileQueue, *geoLocation, *moveUnknown, fileTypes, *organisePhotos, *organiseVideos)
+	go consumer(destinationPath, fileQueue, *geoLocation, *format, *verbose, totalFiles, *duplicateStrategy, done)
 
 	<-done
+
+	log.Println("Processed " + strconv.Itoa(totalFiles) + " files")
 }
 
+// func errorHandler(errorQueue chan error) {
+// 	for err := range errorQueue {
+// 		log.Printf("Error: %v\n", err)
+// 	}
+// }
+
 func displayHelp() {
-	fmt.Println("Usage: mediarizer [flags]")
-	fmt.Println("Flags:")
+	log.Println("Mediarizer 2 Flags:")
 	flag.PrintDefaults()
 }
 
-func contains(arr []string, str string) bool {
-	for _, a := range arr {
-		if a == str {
+func arrayContains(stringArray []string, stringCandidate string) bool {
+	for _, string := range stringArray {
+		if string == stringCandidate {
 			return true
 		}
 	}
+
 	return false
 }
 
 func countFiles(rootPath string, fileTypes []string, organisePhotos bool, organiseVideos bool) int {
 	count := 0
+
 	filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil
+			return err
 		}
 
 		if !info.IsDir() {
 			ext := strings.ToLower(filepath.Ext(path))
 
-			if organisePhotos && isPhoto(ext) && (len(fileTypes) == 0 || contains(fileTypes, ext)) {
+			if organisePhotos && isPhoto(ext) && (len(fileTypes) == 0 || arrayContains(fileTypes, ext)) {
 				count++
-			} else if organiseVideos && isVideo(ext) && (len(fileTypes) == 0 || contains(fileTypes, ext)) {
+			} else if organiseVideos && isVideo(ext) && (len(fileTypes) == 0 || arrayContains(fileTypes, ext)) {
 				count++
 			}
 		}
