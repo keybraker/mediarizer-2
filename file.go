@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"os"
 	"strings"
 )
@@ -60,7 +60,7 @@ func loadFeatureCollection() (FeatureCollection, error) {
 	}
 	defer file.Close()
 
-	bytes, err := ioutil.ReadAll(file)
+	bytes, err := io.ReadAll(file)
 	if err != nil {
 		return FeatureCollection{}, err
 	}
