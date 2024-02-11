@@ -102,10 +102,13 @@ func main() {
 	}
 
 	fileQueue := make(chan FileInfo, 100)
-
+	errorQueue := make(chan error, 100)
+	defer close(errorQueue)
 	done := make(chan struct{})
 
-	go creator(sourcePath, fileQueue, *geoLocation, *moveUnknown, fileTypes, *organisePhotos, *organiseVideos)
+	go errorHandler(errorQueue)
+
+	go creator(sourcePath, fileQueue, errorQueue, *geoLocation, *moveUnknown, fileTypes, *organisePhotos, *organiseVideos)
 	go consumer(destinationPath, fileQueue, *geoLocation, *format, *verbose, totalFiles, *duplicateStrategy, done)
 
 	<-done
@@ -113,11 +116,11 @@ func main() {
 	log.Println("Processed " + strconv.Itoa(totalFiles) + " files")
 }
 
-// func errorHandler(errorQueue chan error) {
-// 	for err := range errorQueue {
-// 		log.Printf("Error: %v\n", err)
-// 	}
-// }
+func errorHandler(errorQueue chan error) {
+	for err := range errorQueue {
+		log.Printf("Error: %v\n", err)
+	}
+}
 
 func displayHelp() {
 	log.Println("Mediarizer 2 Flags:")

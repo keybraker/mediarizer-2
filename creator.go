@@ -14,19 +14,36 @@ import (
 
 var featureCollection FeatureCollection
 
+// func fileHashMemory(sourcePath, destinationPath string, fileHashMap map[string][]string, hashCache *sync.Map, errorQueue chan<- error) {
+// 	fileHash, err := getFileHash(sourcePath, hashCache)
+// 	if err != nil {
+// 		errorQueue <- err
+// 	}
+
+// 	hashStr := fmt.Sprintf("%x", fileHash)
+
+// 	fileHashMap[hashStr] = append(fileHashMap[hashStr], destinationPath)
+
+// 	return
+// }
+
 func creator(
 	sourcePath string,
-	fileInfoQueue chan<- FileInfo,
+	fileQueue chan<- FileInfo,
+	errorQueue chan<- error,
 	geoLocation bool,
 	moveUnknown bool,
 	fileTypesToInclude []string,
 	organisePhotos bool,
 	organiseVideos bool,
+	// fileHashMap map[string][]string,
 ) {
+	// hashCache := &sync.Map{}
+
 	filepath.WalkDir(sourcePath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			fmt.Println(err)
-			return err
+			errorQueue <- err
+			return nil
 		}
 
 		if !os.FileMode(d.Type()).IsRegular() {
@@ -37,37 +54,44 @@ func creator(
 
 		if fileType == Unknown {
 			if moveUnknown {
-				fileInfoQueue <- FileInfo{Path: path, FileType: Unknown}
+				fileQueue <- FileInfo{Path: path, FileType: Unknown}
 			}
+
 			return nil
 		}
 
 		if geoLocation {
 			country, err := getCountry(path)
 			if err != nil {
-				fmt.Println(err)
+				errorQueue <- err
 				return nil
 			}
 
 			if fileType != FileTypeExcluded {
-				fileInfoQueue <- FileInfo{Path: path, FileType: fileType, Country: country}
+				// if duplicateStrategy != skip {
+				// 	fileHashMemory()
+				// }
+				fileQueue <- FileInfo{Path: path, FileType: fileType, Country: country}
 			}
 		} else {
-			createdDate, hasCreationDate, err := getCreatedTime(path)
-			if err != nil {
-				fmt.Println(err)
-				return nil
-			}
-
 			if fileType != FileTypeExcluded {
-				fileInfoQueue <- FileInfo{Path: path, FileType: fileType, Created: createdDate, HasCreationDate: hasCreationDate}
+				createdDate, hasCreationDate, err := getCreatedTime(path)
+				if err != nil {
+					errorQueue <- err
+					return nil
+				}
+
+				// if duplicateStrategy != skip {
+				// 	fileHashMemory()
+				// }
+				fileQueue <- FileInfo{Path: path, FileType: fileType, Created: createdDate, HasCreationDate: hasCreationDate}
 			}
 		}
 
 		return nil
 	})
 
-	close(fileInfoQueue)
+	defer close(fileQueue)
 }
 
 func getFileType(path string, fileTypesToInclude []string, organisePhotos bool, organiseVideos bool) FileType {
