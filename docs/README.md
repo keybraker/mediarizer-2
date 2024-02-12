@@ -53,7 +53,7 @@ Mediarizer can be used from the command line by running the `mediarizer` command
 | `-input`     |          `<path>`           |    `-`    | Path to source file or directory                                                       |   true    |
 | `-output`    |          `<path>`           |    `-`    | Path to destination directory                                                          |   true    |
 | `-unknown`   |          `<bool>`           | `<true>`  | Move files with no metadata to undetermined folder                                     |   false   |
-| `-duplicate` |         `<string>`          | `<move>`  | Duplicate strategy, default "move" (skip, delete)                                      |   false   |
+| `-duplicate` |         `<string>`          | `<move>`  | Duplication handling, default "move " (move, skip, delete)                              |   false   |
 | `-location`  |          `<bool>`           | `<false>` | Organize files based on their geo location                                             |   false   |
 | `-types`     | `<comma separated strings>` |  `<all>`  | Comma separated file extensions to organize (.jpg, .png, .gif, .mp4, .avi, .mov, .mkv) |   false   |
 | `-photo`     |          `<bool>`           | `<true>`  | Only organise photos                                                                   |   false   |
