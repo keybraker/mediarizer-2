@@ -13,7 +13,7 @@ func consumer(destinationPath string, fileQueue <-chan FileInfo, errorQueue chan
 	processedFiles := 0
 
 	for fileInfo := range fileQueue {
-		func(fileInfo FileInfo) { // go
+		go func(fileInfo FileInfo) { // go
 			generatedPath, err := generateDestinationPath(destinationPath, fileInfo, geoLocation, format)
 			if err != nil {
 				errorQueue <- err
