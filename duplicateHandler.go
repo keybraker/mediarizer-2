@@ -65,16 +65,16 @@ func processDuplicates(
 
 			switch duplicateStrategy {
 			case "move":
-				destPath, err := handleDuplicates(filePath, "duplicates")
+				destinationPath, err := handleDuplicates(filePath, "duplicates")
 				if err != nil {
 					errorQueue <- err
 				}
 
-				err = moveFile(filePath, destPath, verbose, nil, processedFiles, totalFiles, duplicateStrategy)
+				err = moveFile(filePath, destinationPath, verbose, nil, processedFiles, totalFiles, duplicateStrategy)
 				if err != nil {
 					errorQueue <- err
 				} else {
-					logMoveAction(filePath, destPath, true, duplicateStrategy, processedFiles, totalFiles)
+					logMoveAction(filePath, destinationPath, true, duplicateStrategy, processedFiles, totalFiles)
 				}
 			case "delete":
 				err := os.Remove(filePath)
@@ -156,18 +156,18 @@ func getFileHash(filePath string, hashCache *sync.Map) ([]byte, error) {
 	return calculatedHash, nil
 }
 
-func handleDuplicates(destPath, duplicateFileName string) (string, error) {
+func handleDuplicates(destinationPath, duplicateFileName string) (string, error) {
 	ext := filepath.Ext(duplicateFileName)
 	nameWithoutExt := duplicateFileName[:len(duplicateFileName)-len(ext)]
 	underscoreExt := strings.ReplaceAll(ext, ".", "_")
-	duplicatesFolder := filepath.Join(filepath.Dir(destPath), fmt.Sprintf("%s%s", nameWithoutExt, underscoreExt))
+	duplicatesFolder := filepath.Join(filepath.Dir(destinationPath), fmt.Sprintf("%s%s", nameWithoutExt, underscoreExt))
 
 	err := createDestinationDirectory(duplicatesFolder)
 	if err != nil {
 		return "", err
 	}
 
-	return filepath.Join(duplicatesFolder, filepath.Base(destPath)), nil
+	return filepath.Join(duplicatesFolder, filepath.Base(destinationPath)), nil
 }
 
 func findDuplicateFile(sourceHash []byte, destFiles []fs.DirEntry, destDir string) string {

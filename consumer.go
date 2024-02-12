@@ -42,8 +42,8 @@ func consumer(destinationPath string, fileQueue <-chan FileInfo, errorQueue chan
 	done <- struct{}{}
 }
 
-func moveFile(sourcePath, destPath string, verbose bool, processedImages *list.List, processedFiles int, totalFiles int, duplicateStrategy string) error {
-	err := createDestinationDirectory(filepath.Dir(destPath))
+func moveFile(sourcePath, destinationPath string, verbose bool, processedImages *list.List, processedFiles int, totalFiles int, duplicateStrategy string) error {
+	err := createDestinationDirectory(filepath.Dir(destinationPath))
 	if err != nil {
 		return err
 	}
@@ -53,13 +53,13 @@ func moveFile(sourcePath, destPath string, verbose bool, processedImages *list.L
 		return fmt.Errorf("failed to calculate source file hash: %v", err)
 	}
 
-	destFiles, err := os.ReadDir(filepath.Dir(destPath))
+	destinationFiles, err := os.ReadDir(filepath.Dir(destinationPath))
 	if err != nil {
 		return fmt.Errorf("failed to read destination directory: %v", err)
 	}
 
 	if verbose {
-		moveActionLog, err := logMoveAction(sourcePath, filepath.Dir(destPath), false, duplicateStrategy, processedFiles, totalFiles)
+		moveActionLog, err := logMoveAction(sourcePath, filepath.Dir(destinationPath), false, duplicateStrategy, processedFiles, totalFiles)
 		if err != nil {
 			return err
 		}
@@ -67,34 +67,34 @@ func moveFile(sourcePath, destPath string, verbose bool, processedImages *list.L
 		VerboseLogger.Println(moveActionLog)
 	}
 
-	duplicateFileName := findDuplicateFile(sourceHash, destFiles, filepath.Dir(destPath))
+	duplicateFileName := findDuplicateFile(sourceHash, destinationFiles, filepath.Dir(destinationPath))
 	if duplicateFileName != "" {
 		switch duplicateStrategy {
 		case "move":
-			destPath, err = handleDuplicates(destPath, duplicateFileName)
+			destinationPath, err = handleDuplicates(destinationPath, duplicateFileName)
 			if err != nil {
 				return err
 			}
-		case "skip":
 		case "delete":
 			err := os.Remove(sourcePath)
 			if err != nil {
 				return err
 			}
+		case "skip":
 		default:
 			return fmt.Errorf("invalid duplicateStrategy flag value")
 		}
 	} else {
-		_, err := os.Stat(destPath)
+		_, err := os.Stat(destinationPath)
 		if !os.IsNotExist(err) {
-			destPath, err = generateUniqueName(destPath)
+			destinationPath, err = generateUniqueName(destinationPath)
 			if err != nil {
 				return err
 			}
 		}
 	}
 
-	err = renameFile(sourcePath, destPath)
+	err = renameFile(sourcePath, destinationPath)
 	if err != nil {
 		return err
 	}
@@ -148,19 +148,19 @@ func createDestinationDirectory(destDir string) error {
 	return nil
 }
 
-func renameFile(sourcePath, destPath string) error {
-	if err := os.Rename(sourcePath, destPath); err != nil {
-		return fmt.Errorf("failed to move file from %s to %s: %v", sourcePath, destPath, err)
+func renameFile(sourcePath, destinationPath string) error {
+	if err := os.Rename(sourcePath, destinationPath); err != nil {
+		return fmt.Errorf("failed to move file from %s to %s: %v", sourcePath, destinationPath, err)
 	}
 
 	return nil
 }
 
-func generateUniqueName(destPath string) (string, error) {
-	ext := filepath.Ext(destPath)
-	nameWithoutExt := destPath[:len(destPath)-len(ext)]
+func generateUniqueName(destinationPath string) (string, error) {
+	ext := filepath.Ext(destinationPath)
+	nameWithoutExt := destinationPath[:len(destinationPath)-len(ext)]
 	counter := 1
-	newPath := destPath
+	newPath := destinationPath
 
 	for {
 		_, err := os.Stat(newPath)
