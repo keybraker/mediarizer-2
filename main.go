@@ -22,6 +22,11 @@ var (
 	showHelp          *bool
 	verbose           *bool
 	showVersion       *bool
+
+	InfoLogger    *log.Logger
+	VerboseLogger *log.Logger
+	WarningLogger *log.Logger
+	ErrorLogger   *log.Logger
 )
 
 func init() {
@@ -37,6 +42,11 @@ func init() {
 	showHelp = flag.Bool("help", false, "Display usage guide")
 	verbose = flag.Bool("verbose", true, "Display progress information in console")
 	showVersion = flag.Bool("version", false, "Display version information")
+
+	InfoLogger = log.New(os.Stdout, "", log.Lmsgprefix)
+	VerboseLogger = log.New(os.Stdout, "VERBOSE: ", log.Ldate|log.Ltime)
+	WarningLogger = log.New(os.Stdout, "WARNING: ", log.Ldate|log.Ltime)
+	ErrorLogger = log.New(os.Stdout, "ERROR: ", log.Ldate|log.Ltime)
 }
 
 func flagProcessor() []string {
@@ -46,12 +56,12 @@ func flagProcessor() []string {
 	}
 
 	if *showVersion {
-		log.Println("v1.0.0")
+		InfoLogger.Println("v1.0.0")
 		os.Exit(0)
 	}
 
 	if *inputPath == "" || *outputPath == "" {
-		log.Fatal("error: input and output paths are mandatory")
+		ErrorLogger.Fatal("input and output paths are mandatory")
 	}
 
 	var fileTypes []string
@@ -71,7 +81,7 @@ func flagProcessor() []string {
 		}
 
 		if !isValidType {
-			log.Fatal("error: one or more file types supplied are invalid")
+			ErrorLogger.Fatal("one or more file types supplied are invalid")
 		}
 	}
 
@@ -93,7 +103,7 @@ func main() {
 	destinationDrive := filepath.VolumeName(destinationPath)
 
 	if sourceDrive != "" && destinationDrive != "" && sourceDrive != destinationDrive {
-		log.Fatal("error: input and output paths must be on the same disk drive")
+		ErrorLogger.Fatal("input and output paths must be on the same disk drive")
 	}
 
 	totalFiles := 0
@@ -101,29 +111,38 @@ func main() {
 		totalFiles = countFiles(sourcePath, fileTypes, *organisePhotos, *organiseVideos)
 	}
 
+	// fileHashMap := make(map[string][]string)
+
 	fileQueue := make(chan FileInfo, 100)
+	logQueue := make(chan string, 100)
+	defer close(logQueue)
 	errorQueue := make(chan error, 100)
 	defer close(errorQueue)
+
 	done := make(chan struct{})
 
 	go errorHandler(errorQueue)
 
 	go creator(sourcePath, fileQueue, errorQueue, *geoLocation, *moveUnknown, fileTypes, *organisePhotos, *organiseVideos)
-	go consumer(destinationPath, fileQueue, *geoLocation, *format, *verbose, totalFiles, *duplicateStrategy, done)
+	go consumer(destinationPath, fileQueue, errorQueue, logQueue, *geoLocation, *format, *verbose, totalFiles, *duplicateStrategy, done)
 
 	<-done
 
-	log.Println("Processed " + strconv.Itoa(totalFiles) + " files")
+	InfoLogger.Println("Processed " + strconv.Itoa(totalFiles) + " files")
+
+	// if *duplicateStrategy != "skip" {
+	// 	processDuplicates(destinationPath, *duplicateStrategy, *verbose, fileHashMap, errorQueue)
+	// }
 }
 
 func errorHandler(errorQueue chan error) {
 	for err := range errorQueue {
-		log.Printf("Error: %v\n", err)
+		ErrorLogger.Printf("%v\n", err)
 	}
 }
 
 func displayHelp() {
-	log.Println("Mediarizer 2 Flags:")
+	InfoLogger.Println("Mediarizer 2 Flags:")
 	flag.PrintDefaults()
 }
 

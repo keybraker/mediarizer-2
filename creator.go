@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,8 +37,6 @@ func creator(
 	organiseVideos bool,
 	// fileHashMap map[string][]string,
 ) {
-	// hashCache := &sync.Map{}
-
 	filepath.WalkDir(sourcePath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			errorQueue <- err
@@ -97,14 +94,14 @@ func creator(
 func getFileType(path string, fileTypesToInclude []string, organisePhotos bool, organiseVideos bool) FileType {
 	file, err := os.Open(path)
 	if err != nil {
-		log.Println(err)
+		ErrorLogger.Println(err)
 		return FileTypeUnknown
 	}
 	defer file.Close()
 
 	fileInfo, err := file.Stat()
 	if err != nil {
-		log.Println(err)
+		ErrorLogger.Println(err)
 		return FileTypeUnknown
 	}
 
