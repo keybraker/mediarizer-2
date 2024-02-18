@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -12,8 +13,12 @@ func consumer(destinationPath string, fileQueue <-chan FileInfo, errorQueue chan
 	processedImages := list.New()
 	processedFiles := 0
 
+	var wg sync.WaitGroup
+
 	for fileInfo := range fileQueue {
+		wg.Add(1)
 		go func(fileInfo FileInfo) { // go
+			defer wg.Done()
 			generatedPath, err := generateDestinationPath(destinationPath, fileInfo, geoLocation, format)
 			if err != nil {
 				errorQueue <- err
@@ -38,6 +43,9 @@ func consumer(destinationPath string, fileQueue <-chan FileInfo, errorQueue chan
 		// 	time.Sleep(100 * time.Millisecond)
 		// }
 	}
+
+	wg.Wait()
+	fmt.Println("All workers done")
 
 	done <- struct{}{}
 }
