@@ -2,11 +2,13 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 var (
@@ -40,13 +42,29 @@ func init() {
 	organiseVideos = flag.Bool("video", true, "Organise only videos")
 	format = flag.String("format", "word", "Naming format for month folders, default \"word\" (word, number, combined)")
 	showHelp = flag.Bool("help", false, "Display usage guide")
-	verbose = flag.Bool("verbose", true, "Display progress information in console")
+	verbose = flag.Bool("verbose", false, "Display progress information in console")
 	showVersion = flag.Bool("version", false, "Display version information")
 
-	InfoLogger = log.New(os.Stdout, "", log.Lmsgprefix)
-	VerboseLogger = log.New(os.Stdout, "VERBOSE: ", log.Ldate|log.Ltime)
-	WarningLogger = log.New(os.Stdout, "WARNING: ", log.Ldate|log.Ltime)
-	ErrorLogger = log.New(os.Stdout, "ERROR: ", log.Ldate|log.Ltime)
+	InfoLogger = log.New(os.Stdout, "\033[1m\033[34minfo\033[0m:\t", log.Lmsgprefix)
+	VerboseLogger = log.New(os.Stdout, "\033[1m\033[36mverbose\033[0m:\t", log.Ldate|log.Ltime)
+	WarningLogger = log.New(os.Stdout, "\033[1m\033[33mwarn\033[0m:\t", log.Ldate|log.Ltime)
+	ErrorLogger = log.New(os.Stdout, "\033[1m\033[31merror\033[0m:\t", log.Ldate|log.Ltime)
+}
+
+func logger(loggerType string, message string) {
+	switch loggerType {
+	case "info":
+		InfoLogger.Println(message)
+	case "verbose":
+		if *verbose {
+			VerboseLogger.Println(message)
+		}
+	case "warning":
+		WarningLogger.Println(message)
+	case "error":
+		ErrorLogger.Println(message)
+	}
+
 }
 
 func flagProcessor() []string {
@@ -56,12 +74,12 @@ func flagProcessor() []string {
 	}
 
 	if *showVersion {
-		InfoLogger.Println("v1.0.0")
+		logger("info", "v1.0.0")
 		os.Exit(0)
 	}
 
 	if *inputPath == "" || *outputPath == "" {
-		ErrorLogger.Fatal("input and output paths are mandatory")
+		logger("error", "input and output paths are mandatory")
 	}
 
 	var fileTypes []string
@@ -81,7 +99,7 @@ func flagProcessor() []string {
 		}
 
 		if !isValidType {
-			ErrorLogger.Fatal("one or more file types supplied are invalid")
+			logger("error", "one or more file types supplied are invalid")
 		}
 	}
 
@@ -103,15 +121,8 @@ func main() {
 	destinationDrive := filepath.VolumeName(destinationPath)
 
 	if sourceDrive != "" && destinationDrive != "" && sourceDrive != destinationDrive {
-		ErrorLogger.Fatal("input and output paths must be on the same disk drive")
+		logger("error", "input and output paths must be on the same disk drive")
 	}
-
-	totalFiles := 0
-	if *verbose {
-		totalFiles = countFiles(sourcePath, fileTypes, *organisePhotos, *organiseVideos)
-	}
-
-	// fileHashMap := make(map[string][]string)
 
 	fileQueue := make(chan FileInfo, 100)
 	logQueue := make(chan string, 100)
@@ -123,26 +134,33 @@ func main() {
 
 	go errorHandler(errorQueue)
 
-	go creator(sourcePath, fileQueue, errorQueue, *geoLocation, *moveUnknown, fileTypes, *organisePhotos, *organiseVideos)
+	fileHashMap := make(map[string]bool)
+	var hashCache = &sync.Map{}
+
+	logger("info", "Counting files to move...")
+	totalFiles := countFiles(sourcePath, fileTypes, *organisePhotos, *organiseVideos)
+	logger("info", "Completed.")
+
+	logger("info", "Creating file hash map...")
+	hashImagesInPath(destinationPath, fileHashMap, hashCache)
+	logger("info", "Completed.")
+
+	go creator(sourcePath, fileQueue, errorQueue, *geoLocation, *moveUnknown, fileTypes, *organisePhotos, *organiseVideos, *duplicateStrategy, fileHashMap, hashCache)
 	go consumer(destinationPath, fileQueue, errorQueue, logQueue, *geoLocation, *format, *verbose, totalFiles, *duplicateStrategy, done)
 
 	<-done
 
-	InfoLogger.Println("Processed " + strconv.Itoa(totalFiles) + " files")
-
-	// if *duplicateStrategy != "skip" {
-	// 	processDuplicates(destinationPath, *duplicateStrategy, *verbose, fileHashMap, errorQueue)
-	// }
+	logger("info", strconv.Itoa(totalFiles)+" files processed.")
 }
 
 func errorHandler(errorQueue chan error) {
 	for err := range errorQueue {
-		ErrorLogger.Printf("%v\n", err)
+		logger("error", fmt.Sprintf("%v\n", err))
 	}
 }
 
 func displayHelp() {
-	InfoLogger.Println("Mediarizer 2 Flags:")
+	logger("info", "Mediarizer 2 Flags:")
 	flag.PrintDefaults()
 }
 

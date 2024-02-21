@@ -21,11 +21,11 @@ func logMoveAction(sourcePath, destinationDirectory string, isDuplicate bool, du
 		case "skip":
 			colorCode = "\033[34m"
 			actionName = "Skipped (duplicate)"
+			return fmt.Sprintf("\033[1m%s%s\033[0m %s\n", colorCode, actionName, fileName), nil
 		case "delete":
 			colorCode = "\033[31m"
 			actionName = "Deleted (duplicate)"
-			VerboseLogger.Printf("\033[1m%s%s\033[0m %s\n", colorCode, actionName, fileName)
-			return "", nil
+			return fmt.Sprintf("\033[1m%s%s\033[0m %s\n", colorCode, actionName, fileName), nil
 		default:
 			colorCode = "\033[35m"
 			actionName = "Unknown Operation"

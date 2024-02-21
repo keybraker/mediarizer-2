@@ -9,7 +9,17 @@ import (
 	"time"
 )
 
-func consumer(destinationPath string, fileQueue <-chan FileInfo, errorQueue chan<- error, logQueue <-chan string, geoLocation bool, format string, verbose bool, totalFiles int, duplicateStrategy string, done chan<- struct{}) {
+func consumer(
+	destinationPath string,
+	fileQueue <-chan FileInfo,
+	errorQueue chan<- error,
+	logQueue <-chan string,
+	geoLocation bool,
+	format string,
+	verbose bool,
+	totalFiles int,
+	duplicateStrategy string,
+	done chan<- struct{}) {
 	processedImages := list.New()
 	processedFiles := 0
 
@@ -17,22 +27,32 @@ func consumer(destinationPath string, fileQueue <-chan FileInfo, errorQueue chan
 
 	for fileInfo := range fileQueue {
 		wg.Add(1)
-		go func(fileInfo FileInfo) { // go
+		func(fileInfo FileInfo) { // go
 			defer wg.Done()
-			generatedPath, err := generateDestinationPath(destinationPath, fileInfo, geoLocation, format)
+			var generatedPath string
+
+			generatedPath, err := getDestinationPath(destinationPath, fileInfo, geoLocation, format)
 			if err != nil {
 				errorQueue <- err
 			}
 
-			_, err = os.Stat(generatedPath)
-			if !os.IsNotExist(err) {
-				generatedPath, err = generateUniqueName(generatedPath)
+			if fileInfo.isDuplicate {
+				generatedPath, err = createDuplicateFolder(generatedPath, "DUPLICATE")
 				if err != nil {
 					errorQueue <- err
 				}
+				generatedPath = filepath.Join(generatedPath, filepath.Base(fileInfo.Path))
+			} else {
+				_, err = os.Stat(generatedPath)
+				if !os.IsNotExist(err) {
+					generatedPath, err = generateUniquePathName(generatedPath)
+					if err != nil {
+						errorQueue <- err
+					}
+				}
 			}
 
-			err = moveFile(fileInfo.Path, generatedPath, verbose, processedImages, processedFiles, totalFiles, duplicateStrategy)
+			err = moveFile(fileInfo.Path, generatedPath, verbose, processedImages, processedFiles, totalFiles, fileInfo.isDuplicate, duplicateStrategy)
 			if err != nil {
 				errorQueue <- fmt.Errorf("failed to move %s to %s: %v", fileInfo.Path, generatedPath, err)
 			}
@@ -45,60 +65,30 @@ func consumer(destinationPath string, fileQueue <-chan FileInfo, errorQueue chan
 	}
 
 	wg.Wait()
-	fmt.Println("All workers done")
 
 	done <- struct{}{}
 }
 
-func moveFile(sourcePath, destinationPath string, verbose bool, processedImages *list.List, processedFiles int, totalFiles int, duplicateStrategy string) error {
-	err := createDestinationDirectory(filepath.Dir(destinationPath))
-	if err != nil {
-		return err
-	}
-
-	sourceHash, err := calculateFileHash(sourcePath)
-	if err != nil {
-		return fmt.Errorf("failed to calculate source file hash: %v", err)
-	}
-
-	destinationFiles, err := os.ReadDir(filepath.Dir(destinationPath))
-	if err != nil {
-		return fmt.Errorf("failed to read destination directory: %v", err)
+func moveFile(sourcePath, destinationPath string, verbose bool, processedImages *list.List, processedFiles int, totalFiles int, isDuplicate bool, duplicateStrategy string) error {
+	destPath := filepath.Dir(destinationPath)
+	if err := os.MkdirAll(destPath, os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create destination directory %s: %v", destPath, err)
 	}
 
 	if verbose {
-		moveActionLog, err := logMoveAction(sourcePath, filepath.Dir(destinationPath), false, duplicateStrategy, processedFiles, totalFiles)
+		moveActionLog, err := logMoveAction(sourcePath, destPath, isDuplicate, duplicateStrategy, processedFiles, totalFiles)
 		if err != nil {
 			return err
 		}
 
-		VerboseLogger.Println(moveActionLog)
+		logger("verbose", moveActionLog)
 	}
 
-	duplicateFileName := findDuplicateFile(sourceHash, destinationFiles, filepath.Dir(destinationPath))
-	if duplicateFileName != "" {
-		switch duplicateStrategy {
-		case "move":
-			destinationPath, err = handleDuplicates(destinationPath, duplicateFileName)
-			if err != nil {
-				return err
-			}
-		case "delete":
-			err := os.Remove(sourcePath)
-			if err != nil {
-				return err
-			}
-		case "skip":
-		default:
-			return fmt.Errorf("invalid duplicateStrategy flag value")
-		}
-	} else {
-		_, err := os.Stat(destinationPath)
-		if !os.IsNotExist(err) {
-			destinationPath, err = generateUniqueName(destinationPath)
-			if err != nil {
-				return err
-			}
+	_, err := os.Stat(destinationPath)
+	if !os.IsNotExist(err) {
+		destinationPath, err = generateUniquePathName(destinationPath)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -110,7 +100,7 @@ func moveFile(sourcePath, destinationPath string, verbose bool, processedImages 
 	return nil
 }
 
-func monthFolder(month time.Month, format string) string {
+func getMonthFormatted(month time.Month, format string) string {
 	switch format {
 	case "word":
 		return month.String()
@@ -123,7 +113,7 @@ func monthFolder(month time.Month, format string) string {
 	}
 }
 
-func generateDestinationPath(destinationPath string, fileInfo FileInfo, geoLocation bool, format string) (string, error) {
+func getDestinationPath(destinationPath string, fileInfo FileInfo, geoLocation bool, format string) (string, error) {
 	if geoLocation {
 		switch fileInfo.FileType {
 		case FileTypeImage:
@@ -134,7 +124,7 @@ func generateDestinationPath(destinationPath string, fileInfo FileInfo, geoLocat
 			return fmt.Sprintf("%s/unknown/%s", destinationPath, filepath.Base(fileInfo.Path)), nil
 		}
 	} else {
-		monthFolderName := monthFolder(fileInfo.Created.Month(), format)
+		monthFolderName := getMonthFormatted(fileInfo.Created.Month(), format)
 
 		switch fileInfo.FileType {
 		case FileTypeImage:
@@ -149,13 +139,6 @@ func generateDestinationPath(destinationPath string, fileInfo FileInfo, geoLocat
 	return "", fmt.Errorf("failed to generate destination path for %s", fileInfo.Path)
 }
 
-func createDestinationDirectory(destDir string) error {
-	if err := os.MkdirAll(destDir, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create destination directory %s: %v", destDir, err)
-	}
-	return nil
-}
-
 func renameFile(sourcePath, destinationPath string) error {
 	if err := os.Rename(sourcePath, destinationPath); err != nil {
 		return fmt.Errorf("failed to move file from %s to %s: %v", sourcePath, destinationPath, err)
@@ -164,12 +147,12 @@ func renameFile(sourcePath, destinationPath string) error {
 	return nil
 }
 
-func generateUniqueName(destinationPath string) (string, error) {
+func generateUniquePathName(destinationPath string) (string, error) {
 	ext := filepath.Ext(destinationPath)
-	nameWithoutExt := destinationPath[:len(destinationPath)-len(ext)]
-	counter := 1
-	newPath := destinationPath
+	nameWithoutExtension := destinationPath[:len(destinationPath)-len(ext)]
 
+	newPath := destinationPath
+	counter := 1
 	for {
 		_, err := os.Stat(newPath)
 		if os.IsNotExist(err) {
@@ -178,7 +161,7 @@ func generateUniqueName(destinationPath string) (string, error) {
 			return "", fmt.Errorf("failed to check destination file %s: %v", newPath, err)
 		}
 
-		newPath = fmt.Sprintf("%s_%d%s", nameWithoutExt, counter, ext)
+		newPath = fmt.Sprintf("%s_%d%s", nameWithoutExtension, counter, ext)
 		counter++
 	}
 

@@ -16,6 +16,7 @@ type FileInfo struct {
 	Created         time.Time
 	Country         string
 	HasCreationDate bool
+	isDuplicate     bool
 }
 
 const (
