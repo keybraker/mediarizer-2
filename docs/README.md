@@ -21,13 +21,13 @@ If you wish to build and execute Mediarizer simply run the following build comma
 unix:
 
 ```bash
-go build -o mediarizer2 main.go creator.go file.go consumer.go types.go
+go build -o mediarizer2.exe ./src/main
 ```
 
 windows:
 
 ```bash
-go build -o mediarizer2.exe main.go .\creator.go .\file.go .\consumer.go .\types.go
+go build -o mediarizer2.exe .\src\main
 ```
 
 and then simply execute:
