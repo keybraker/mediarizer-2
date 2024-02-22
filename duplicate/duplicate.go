@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/keybraker/mediarizer-2/src/hash"
+	"github.com/keybraker/mediarizer-2/hash"
 )
 
 // createDuplicateFolder creates a folder for storing duplicates of the file.
