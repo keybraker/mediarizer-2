@@ -3,51 +3,43 @@ package main
 import (
 	"fmt"
 	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/keybraker/mediarizer-2/duplicate"
 
 	"github.com/rwcarlsen/goexif/exif"
 )
 
 var featureCollection FeatureCollection
 
-// func fileHashMemory(sourcePath, destinationPath string, fileHashMap map[string][]string, hashCache *sync.Map, errorQueue chan<- error) {
-// 	fileHash, err := getFileHash(sourcePath, hashCache)
-// 	if err != nil {
-// 		errorQueue <- err
-// 	}
-
-// 	hashStr := fmt.Sprintf("%x", fileHash)
-
-// 	fileHashMap[hashStr] = append(fileHashMap[hashStr], destinationPath)
-
-// 	return
-// }
-
 func creator(
 	sourcePath string,
 	fileQueue chan<- FileInfo,
+	infoQueue chan<- string,
+	warnQueue chan<- string,
 	errorQueue chan<- error,
 	geoLocation bool,
 	moveUnknown bool,
 	fileTypesToInclude []string,
 	organisePhotos bool,
 	organiseVideos bool,
-	// fileHashMap map[string][]string,
+	duplicateStrategy string,
+	fileHashMap map[string]bool,
+	hashCache *sync.Map,
 ) {
-	// hashCache := &sync.Map{}
-
 	filepath.WalkDir(sourcePath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			errorQueue <- err
 			return nil
 		}
 
+		// skip directories and other non-regular files
 		if !os.FileMode(d.Type()).IsRegular() {
-			return nil // skip directories and other non-regular files
+			return nil
 		}
 
 		fileType := getFileType(path, fileTypesToInclude, organisePhotos, organiseVideos)
@@ -60,32 +52,47 @@ func creator(
 			return nil
 		}
 
+		if fileType == FileTypeExcluded {
+			return nil
+		}
+
+		isDuplicate, err := duplicate.IsDuplicate(path, duplicateStrategy, fileHashMap, hashCache)
+		if err != nil {
+			errorQueue <- err
+			return nil
+		}
+
+		if isDuplicate && duplicateStrategy == "skip" {
+			fmt.Printf("Skipped duplicate file: %v\n", path)
+			logMoveAction(path, "", true, duplicateStrategy, 0, 0)
+			return nil
+		} else if isDuplicate && duplicateStrategy == "delete" {
+			if err := os.Remove(path); err != nil {
+				errorQueue <- fmt.Errorf("failed to delete duplicate file: %v", err)
+				return nil
+			}
+			logMoveAction(path, "", true, duplicateStrategy, 0, 0)
+			return nil
+		}
+
 		if geoLocation {
 			country, err := getCountry(path)
 			if err != nil {
 				errorQueue <- err
 				return nil
+			} else if country == "" {
+				warnQueue <- fmt.Sprintf("no country found for file: %v", path)
 			}
 
-			if fileType != FileTypeExcluded {
-				// if duplicateStrategy != skip {
-				// 	fileHashMemory()
-				// }
-				fileQueue <- FileInfo{Path: path, FileType: fileType, Country: country}
-			}
+			fileQueue <- FileInfo{Path: path, FileType: fileType, isDuplicate: isDuplicate, Country: country}
 		} else {
-			if fileType != FileTypeExcluded {
-				createdDate, hasCreationDate, err := getCreatedTime(path)
-				if err != nil {
-					errorQueue <- err
-					return nil
-				}
-
-				// if duplicateStrategy != skip {
-				// 	fileHashMemory()
-				// }
-				fileQueue <- FileInfo{Path: path, FileType: fileType, Created: createdDate, HasCreationDate: hasCreationDate}
+			createdDate, hasCreationDate, err := getCreatedTime(path)
+			if err != nil {
+				errorQueue <- err
+				return nil
 			}
+
+			fileQueue <- FileInfo{Path: path, FileType: fileType, isDuplicate: isDuplicate, Created: createdDate, HasCreationDate: hasCreationDate}
 		}
 
 		return nil
@@ -97,14 +104,14 @@ func creator(
 func getFileType(path string, fileTypesToInclude []string, organisePhotos bool, organiseVideos bool) FileType {
 	file, err := os.Open(path)
 	if err != nil {
-		log.Println(err)
+		logger("warning", fmt.Sprintf("failed to open file %v: %v", path, err))
 		return FileTypeUnknown
 	}
 	defer file.Close()
 
 	fileInfo, err := file.Stat()
 	if err != nil {
-		log.Println(err)
+		logger("warning", fmt.Sprintf("failed to get file info: %v", err))
 		return FileTypeUnknown
 	}
 
@@ -183,7 +190,7 @@ func getCountry(path string) (string, error) {
 
 	lat, lon, err := exifData.LatLong()
 	if err != nil {
-		return "", fmt.Errorf("exif data does not have lat lon")
+		return "", nil // exif data does not have lat lon
 	}
 
 	for _, feature := range featureCollection.Features {

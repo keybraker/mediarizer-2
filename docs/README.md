@@ -21,13 +21,13 @@ If you wish to build and execute Mediarizer simply run the following build comma
 unix:
 
 ```bash
-go build -o mediarizer2 main.go creator.go file.go consumer.go types.go
+go build -o mediarizer2.exe ./src/main
 ```
 
 windows:
 
 ```bash
-go build -o mediarizer2.exe main.go .\creator.go .\file.go .\consumer.go .\types.go
+go build -o mediarizer2.exe .\src\main
 ```
 
 and then simply execute:
@@ -48,19 +48,20 @@ windows:
 
 Mediarizer can be used from the command line by running the `mediarizer` command followed by various flags. Here's a list of available flags:
 
-| Name        |          Argument           |  Default  | Description                                                                            | Mandatory |
-| :---------- | :-------------------------: | :-------: | :------------------------------------------------------------------------------------- | :-------: |
-| `-input`    |          `<path>`           |    `-`    | Path to source file or directory                                                       |   true    |
-| `-output`   |          `<path>`           |    `-`    | Path to destination directory                                                          |   true    |
-| `-unknown`  |          `<bool>`           | `<true>`  | Move files with no metadata to undetermined folder                                     |   false   |
-| `-location` |          `<bool>`           | `<false>` | Organize files based on their geo location                                             |   false   |
-| `-types`    | `<comma separated strings>` |  `<all>`  | Comma separated file extensions to organize (.jpg, .png, .gif, .mp4, .avi, .mov, .mkv) |   false   |
-| `-photo`    |          `<bool>`           | `<true>`  | Only organise photos                                                                   |   false   |
-| `-video`    |          `<bool>`           | `<true>`  | Only organise videos                                                                   |   false   |
-| `-format`   |         `<string>`          | `<name>`  | Naming format for month folders, default "word" (word, number, combined)               |   false   |
-| `-help`     |             `-`             |    `-`    | Display usage guide                                                                    |   false   |
-| `-verbose`  |          `<bool>`           | `<true>`  | Display progress information in console                                                |   false   |
-| `-version`  |             `-`             |    `-`    | Display version information                                                            |   false   |
+| Name         |          Argument           |  Default  | Description                                                                            | Mandatory |
+| :----------- | :-------------------------: | :-------: | :------------------------------------------------------------------------------------- | :-------: |
+| `-input`     |          `<path>`           |    `-`    | Path to source file or directory                                                       |   true    |
+| `-output`    |          `<path>`           |    `-`    | Path to destination directory                                                          |   true    |
+| `-unknown`   |          `<bool>`           | `<true>`  | Move files with no metadata to undetermined folder                                     |   false   |
+| `-duplicate` |         `<string>`          | `<move>`  | Duplication handling, default "move " (move, skip, delete)                              |   false   |
+| `-location`  |          `<bool>`           | `<false>` | Organize files based on their geo location                                             |   false   |
+| `-types`     | `<comma separated strings>` |  `<all>`  | Comma separated file extensions to organize (.jpg, .png, .gif, .mp4, .avi, .mov, .mkv) |   false   |
+| `-photo`     |          `<bool>`           | `<true>`  | Only organise photos                                                                   |   false   |
+| `-video`     |          `<bool>`           | `<true>`  | Only organise videos                                                                   |   false   |
+| `-format`    |         `<string>`          | `<name>`  | Naming format for month folders, default "word" (word, number, combined)               |   false   |
+| `-help`      |             `-`             |    `-`    | Display usage guide                                                                    |   false   |
+| `-verbose`   |          `<bool>`           | `<true>`  | Display progress information in console                                                |   false   |
+| `-version`   |             `-`             |    `-`    | Display version information                                                            |   false   |
 
 To use Mediarizer 2, simply run the `mediarizer` command followed by any desired flags. For example:
 
