@@ -1,36 +1,36 @@
 # Mediarizer 2
 
-Mediarizer is a command-line tool for organizing your media files.
+Mediarizer2 is a command-line tool for organizing your media files.
 It allows you to easily sort your photos and videos into folders based on date, location, file type, and other criteria.
 
 > As speed is prioritized instead of copying a file it gets transferred to a different location; this means the input and output folders shall be on the same physical drive in order to assure maximum performance.
 
 ## Installation
 
-To install Mediarizer, you'll need to have Go installed on your system.
+1. To install Mediarizer2, you'll need to have Go installed on your system.
 Once you have Go installed, you can run the following command:
 
-```bash
-go install github.com/keybraker/mediarizer-2@latest
-```
+    ```bash
+    go install github.com/keybraker/mediarizer-2@latest
+    ```
 
-This will download and install the Mediarizer package to your Go workspace.
+    This will download and install the Mediarizer2 package to your Go workspace.
 
-If you wish to build and execute Mediarizer simply run the following build command in the repo directory:
+1. If you wish to build and execute Mediarizer2 simply run the following build command in the repo directory:
 
-unix:
+    unix:
 
-```bash
-go build -o mediarizer2 ./app
-```
+    ```bash
+    go build -o mediarizer2 ./app
+    ```
 
-windows:
+    windows:
 
-```bash
-go build -o mediarizer2.exe .\app
-```
+    ```bash
+    go build -o mediarizer2.exe .\app
+    ```
 
-and then simply execute:
+## Execution
 
 unix:
 
@@ -46,14 +46,16 @@ windows:
 
 ## Usage
 
-Mediarizer can be used from the command line by running the `mediarizer` command followed by various flags. Here's a list of available flags:
+Mediarizer2 can be used from the command line by running the `mediarizer2` command followed by various flags.
+
+Here's a list of available flags:
 
 | Name         |          Argument           |  Default  | Description                                                                            | Mandatory |
 | :----------- | :-------------------------: | :-------: | :------------------------------------------------------------------------------------- | :-------: |
 | `-input`     |          `<path>`           |    `-`    | Path to source file or directory                                                       |   true    |
 | `-output`    |          `<path>`           |    `-`    | Path to destination directory                                                          |   true    |
 | `-unknown`   |          `<bool>`           | `<true>`  | Move files with no metadata to undetermined folder                                     |   false   |
-| `-duplicate` |         `<string>`          | `<move>`  | Duplication handling, default "move " (move, skip, delete)                              |   false   |
+| `-duplicate` |         `<string>`          | `<move>`  | Duplication handling, default "move " (move, skip, delete)                             |   false   |
 | `-location`  |          `<bool>`           | `<false>` | Organize files based on their geo location                                             |   false   |
 | `-types`     | `<comma separated strings>` |  `<all>`  | Comma separated file extensions to organize (.jpg, .png, .gif, .mp4, .avi, .mov, .mkv) |   false   |
 | `-photo`     |          `<bool>`           | `<true>`  | Only organise photos                                                                   |   false   |
@@ -62,12 +64,6 @@ Mediarizer can be used from the command line by running the `mediarizer` command
 | `-help`      |             `-`             |    `-`    | Display usage guide                                                                    |   false   |
 | `-verbose`   |          `<bool>`           | `<true>`  | Display progress information in console                                                |   false   |
 | `-version`   |             `-`             |    `-`    | Display version information                                                            |   false   |
-
-To use Mediarizer 2, simply run the `mediarizer` command followed by any desired flags. For example:
-
-```bash
-./mediarizer2 -version
-```
 
 ## Contributing
 

@@ -78,7 +78,7 @@ func flagProcessor() []string {
 	}
 
 	if *showVersion {
-		logger("info", "v1.0.0")
+		fmt.Println("v1.0.0")
 		os.Exit(0)
 	}
 
@@ -121,11 +121,17 @@ func main() {
 	sourcePath := filepath.Clean(*inputPath)
 	destinationPath := filepath.Clean(*outputPath)
 
+	if sourcePath == "" || destinationPath == "" {
+		logger("fatal", "input and output paths must be supplied")
+	}
+
 	sourceDrive := filepath.VolumeName(sourcePath)
 	destinationDrive := filepath.VolumeName(destinationPath)
 
-	if sourceDrive != "" && destinationDrive != "" && sourceDrive != destinationDrive {
-		logger("fatal", "input and output paths must be on the same disk drive")
+	if sourceDrive == "" || destinationDrive == "" {
+		logger("fatal", "input and output paths must be on drives")
+	} else if sourceDrive == destinationDrive {
+		logger("fatal", "input and output paths must on the same drive")
 	}
 
 	fileQueue := make(chan FileInfo, 100)
@@ -146,11 +152,14 @@ func main() {
 	totalFiles := countFiles(sourcePath, fileTypes, *organisePhotos, *organiseVideos)
 	logger("info", "Completed.")
 
-	fileHashMap := make(map[string]bool)
 	hashCache := &sync.Map{}
 
 	logger("info", "Creating file hash map...")
-	hash.HashImagesInPath(destinationPath, fileHashMap, hashCache)
+	fileHashMap, err := hash.HashImagesInPath(destinationPath, hashCache)
+	if err != nil {
+		logger("info", "Failed to create file has map.")
+		logger("fatal", err.Error())
+	}
 	logger("info", "Completed.")
 
 	go creator(
@@ -168,6 +177,7 @@ func main() {
 		fileHashMap,
 		hashCache,
 	)
+
 	go consumer(
 		destinationPath,
 		fileQueue,
@@ -200,13 +210,12 @@ func warnHandler(warnQueue chan string) {
 }
 
 func infoHandler(infoQueue chan string) {
-	for infoing := range infoQueue {
-		logger("info", fmt.Sprintf("%v\n", infoing))
+	for message := range infoQueue {
+		logger("info", fmt.Sprintf("%v\n", message))
 	}
 }
 
 func displayHelp() {
-	logger("info", "Mediarizer 2 Flags:")
 	flag.PrintDefaults()
 }
 

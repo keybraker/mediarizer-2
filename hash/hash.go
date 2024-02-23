@@ -50,8 +50,10 @@ func GetFileHash(filePath string, hashCache *sync.Map) ([]byte, error) {
 }
 
 // hashImagesInPath hashes all images in the given path and updates the fileHashMap.
-func HashImagesInPath(path string, fileHashMap map[string]bool, hashCache *sync.Map) error {
-	return filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
+func HashImagesInPath(path string, hashCache *sync.Map) (map[string]bool, error) {
+	fileHashMap := make(map[string]bool)
+
+	err := filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -72,4 +74,9 @@ func HashImagesInPath(path string, fileHashMap map[string]bool, hashCache *sync.
 
 		return nil
 	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to walk path %s: %v", path, err)
+	}
+
+	return fileHashMap, nil
 }
