@@ -21,7 +21,7 @@ If you wish to build and execute Mediarizer simply run the following build comma
 unix:
 
 ```bash
-go build -o mediarizer2.exe ./app
+go build -o mediarizer2 ./app
 ```
 
 windows:
