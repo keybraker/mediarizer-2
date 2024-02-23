@@ -65,6 +65,8 @@ func logger(loggerType string, message string) {
 		WarningLogger.Println(message)
 	case "error":
 		ErrorLogger.Println(message)
+	case "fatal":
+		ErrorLogger.Fatal(message)
 	}
 
 }
@@ -81,7 +83,7 @@ func flagProcessor() []string {
 	}
 
 	if *inputPath == "" || *outputPath == "" {
-		logger("error", "input and output paths are mandatory")
+		logger("fatal", "input and output paths are mandatory")
 	}
 
 	var fileTypes []string
@@ -101,7 +103,7 @@ func flagProcessor() []string {
 		}
 
 		if !isValidType {
-			logger("error", "one or more file types supplied are invalid")
+			logger("fatal", "one or more file types supplied are invalid")
 		}
 	}
 
@@ -123,7 +125,7 @@ func main() {
 	destinationDrive := filepath.VolumeName(destinationPath)
 
 	if sourceDrive != "" && destinationDrive != "" && sourceDrive != destinationDrive {
-		logger("error", "input and output paths must be on the same disk drive")
+		logger("fatal", "input and output paths must be on the same disk drive")
 	}
 
 	fileQueue := make(chan FileInfo, 100)
