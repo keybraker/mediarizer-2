@@ -11,8 +11,16 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        OS: [linux, windows, macos]
-        ARCH: [amd64]
+        include:
+          - OS: linux
+            ARCH: amd64
+            EXT: "bin"
+          - OS: windows
+            ARCH: amd64
+            EXT: "exe"
+          - OS: macos
+            ARCH: amd64
+            EXT: "app"
     steps:
       - uses: actions/checkout@v4
 
@@ -24,23 +32,17 @@ jobs:
       - name: Build
         run: |
           GOOS=${{ matrix.OS }} GOARCH=${{ matrix.ARCH }}
-          EXT=""
-          if [ "$GOOS" = "windows" ]; then
-            EXT=".exe"
-          elif [ "$GOOS" = "linux" ]; then
-            EXT=".bin"
-          elif [ "$GOOS" = "macos" ]; then
-            EXT=""
-          fi
-          go build -v -o mediarizer2-${{ matrix.OS }}-${{ matrix.ARCH }}$EXT ./app
-        # run: |
-        #   env GOOS=${{ matrix.OS }} GOARCH=${{ matrix.ARCH }} go build -v -o mediarizer2-${{ matrix.ARCH }}-${{ matrix.OS }} ./app
+          go build -v -o mediarizer2-${{ matrix.OS }}-${{ matrix.ARCH }}.${{ matrix.EXT }} ./app
+        env:
+          GOOS: ${{ matrix.OS }}
+          GOARCH: ${{ matrix.ARCH }}
+          EXT: ${{ matrix.EXT }}
 
       - name: Archive production artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: mediarizer2-${{ matrix.ARCH }}-${{ matrix.OS }}
-          path: mediarizer2-${{ matrix.ARCH }}-${{ matrix.OS }}
+          name: mediarizer2-${{ matrix.ARCH }}-${{ matrix.OS }}.${{ matrix.EXT }}
+          path: mediarizer2-${{ matrix.ARCH }}-${{ matrix.OS }}.${{ matrix.EXT }}
 
   release:
     needs: build
