@@ -1,10 +1,9 @@
 name: Go Build and Release
 
-# on:
-#   push:
-#     tags:
-#       - 'v*'
-on: [push]
+on:
+  push:
+    tags:
+      - 'v*'
 
 jobs:
   build:
@@ -45,8 +44,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: version 1 #${{ github.run_number }}
-          release_name: Release version 1 #${{ github.run_number }}
+          tag_name: ${{ github.run_number }}
+          release_name: Release ${{ github.run_number }}
+          body: |
+            Release ${{ github.run_number }}
+            - continuous deployment
           draft: false
           prerelease: false
 
