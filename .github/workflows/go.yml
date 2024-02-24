@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        OS: [linux, windows]
+        OS: [linux, windows, macos]
         ARCH: [amd64]
     steps:
       - uses: actions/checkout@v4
@@ -27,8 +27,12 @@ jobs:
           EXT=""
           if [ "$GOOS" = "windows" ]; then
             EXT=".exe"
+          elif [ "$GOOS" = "linux" ]; then
+            EXT=".bin"
+          elif [ "$GOOS" = "macos" ]; then
+            EXT=""
           fi
-          go build -v -o mediarizer2-${{ matrix.ARCH }}-${{ matrix.OS }}$EXT ./app
+          go build -v -o mediarizer2-${{ matrix.OS }}-${{ matrix.ARCH }}$EXT ./app
         # run: |
         #   env GOOS=${{ matrix.OS }} GOARCH=${{ matrix.ARCH }} go build -v -o mediarizer2-${{ matrix.ARCH }}-${{ matrix.OS }} ./app
 
