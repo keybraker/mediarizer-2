@@ -29,7 +29,7 @@ jobs:
       - name: Archive production artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: artifacts
+          name: mediarizer2-${{ matrix.OS }}-${{ matrix.ARCH }}
           path: mediarizer2-${{ matrix.OS }}-${{ matrix.ARCH }}
 
   release:
@@ -54,7 +54,6 @@ jobs:
       - name: Download Artifacts
         uses: actions/download-artifact@v3
         with:
-          name: artifacts
           path: ./
 
       - name: Upload Release Asset Linux
