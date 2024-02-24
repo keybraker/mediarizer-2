@@ -10,8 +10,19 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        goos: [linux, windows]
-        goarch: [amd64]
+        include:
+          - OS: linux
+            ARCH: amd64
+            EXT: "bin"
+          - OS: windows
+            ARCH: amd64
+            EXT: "exe"
+          - OS: darwin
+            ARCH: amd64
+            EXT: "app"
+          - OS: darwin
+            ARCH: arm64
+            EXT: "app"
     steps:
       - uses: actions/checkout@v4
 
@@ -22,21 +33,40 @@ jobs:
 
       - name: Build
         run: |
-          env GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -v -o mediarizer2-${{ matrix.goos }}-${{ matrix.goarch }} ./app
+          GOOS=${{ matrix.OS }} GOARCH=${{ matrix.ARCH }}
+          go build -v -o mediarizer2-${{ matrix.OS }}-${{ matrix.ARCH }}.${{ matrix.EXT }} ./app
+        env:
+          GOOS: ${{ matrix.OS }}
+          GOARCH: ${{ matrix.ARCH }}
+          EXT: ${{ matrix.EXT }}
 
       - name: Archive production artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: mediarizer2-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: mediarizer2-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: mediarizer2-${{ matrix.OS }}-${{ matrix.ARCH }}.${{ matrix.EXT }}
+          path: mediarizer2-${{ matrix.OS }}-${{ matrix.ARCH }}.${{ matrix.EXT }}
 
   release:
     needs: build
     runs-on: ubuntu-latest
     # if: github.ref == 'refs/heads/main'
     steps:
-      - name: Download Artifacts
-        uses: actions/download-artifact@v3
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Fetch Tags
+        run: git fetch --depth=1 origin +refs/tags/*:refs/tags/*
+
+      - name: Get commits since last tag
+        id: get_commits
+        run: |
+          LATEST_TAG=$(git describe --tags --abbrev=0 --always)
+          if [ -z "$LATEST_TAG" ] || [[ "$LATEST_TAG" == *"$GITHUB_SHA"* ]]; then
+            LATEST_TAG=$(git rev-list --max-parents=0 HEAD)
+          fi
+          COMMIT_MESSAGES=$(git log $LATEST_TAG..HEAD --pretty=format:"%h - %s")
+          echo "::set-output name=commits::$COMMIT_MESSAGES"
 
       - name: Create Release
         id: create_release
@@ -44,30 +74,32 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ github.run_number }}
-          release_name: Release ${{ github.run_number }}
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
           body: |
-            Release ${{ github.run_number }}
-            - continuous deployment
+            - Commits included:
+              ${{ steps.get_commits.outputs.commits }}
+            - Binaries:
+              (Download page)[https://github.com/keybraker/mediarizer-2/actions/runs/${{ github.run_id }}#artifacts]
           draft: false
           prerelease: false
 
-      - name: Upload Release Asset Linux
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download Artifacts
+        uses: actions/download-artifact@v3
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./mediarizer2-linux-amd64
-          asset_name: mediarizer2-linux-amd64
-          asset_content_type: application/octet-stream
+          path: ./
 
-      - name: Upload Release Asset Windows
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./mediarizer2-windows-amd64
-          asset_name: mediarizer2-windows-amd64
-          asset_content_type: application/octet-stream
+      - name: Upload Release Assets
+        run: |
+          for file in mediarizer2-*; do
+            echo "Uploading $file"
+            asset_path="$file"
+            asset_name=$(basename $file)
+            echo "Asset Name: $asset_name"
+            curl \
+              -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$asset_path" \
+              "${{ steps.create_release.outputs.upload_url }}?name=$(urlencode $asset_name)"
+          done
