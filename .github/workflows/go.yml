@@ -1,10 +1,9 @@
 name: Go Build and Release
 
-# on:
-#   push:
-#     tags:
-#       - 'v*'
-on: [push]
+on:
+  push:
+    tags:
+      - 'v*'
 
 jobs:
   build:
@@ -34,7 +33,7 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
-    # if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main'
     steps:
       - name: Download Artifacts
         uses: actions/download-artifact@v3
@@ -50,7 +49,6 @@ jobs:
           body: |
             Release ${{ github.run_number }}
             - continuous deployment
-            - reference ${{ github.ref }}
           draft: false
           prerelease: false
 
