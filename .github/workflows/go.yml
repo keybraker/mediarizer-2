@@ -1,9 +1,11 @@
 name: Go Build and Release
 
+# on:
+#   push:
+#     tags:
+#       - 'v*'
 on:
-  push:
-    tags:
-      - 'v*'
+  [push]
 
 jobs:
   build:
@@ -58,7 +60,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./mediarizer2-linux-amd64
+          asset_path: ./
           asset_name: mediarizer2-linux-amd64
           asset_content_type: application/octet-stream
 
@@ -68,6 +70,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./mediarizer2-windows-amd64
+          asset_path: ./
           asset_name: mediarizer2-windows-amd64
           asset_content_type: application/octet-stream
