@@ -18,8 +18,11 @@ jobs:
           - OS: windows
             ARCH: amd64
             EXT: "exe"
-          - OS: macos
+          - OS: darwin
             ARCH: amd64
+            EXT: "app"
+          - OS: darwin
+            ARCH: arm64
             EXT: "app"
     steps:
       - uses: actions/checkout@v4
