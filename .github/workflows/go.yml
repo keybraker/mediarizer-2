@@ -75,12 +75,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ github.run_number }}
-          release_name: Release ${{ github.ref_name }} (${{ github.run_number }})
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
           body: |
-            - All binaries available in release notes
             - Commits included:
               ${{ steps.get_commits.outputs.commits }}
+            - Binaries:
+              ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}/mediarizer2-linux-amd64.bin
+              ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}/mediarizer2-windows-amd64.exe
+              ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}/mediarizer2-darwin-amd64.app
+              ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}/mediarizer2-darwin-arm64.app
           draft: false
           prerelease: false
 
@@ -103,10 +107,3 @@ jobs:
               --data-binary "@$asset_path" \
               "${{ steps.create_release.outputs.upload_url }}?name=$(urlencode $asset_name)"
           done
-
-      - name: Upload release binaries
-        uses: alexellis/upload-assets@0.4.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          asset_paths: '["mediarizer2-*"]'
