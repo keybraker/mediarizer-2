@@ -12,8 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        goos: [linux, windows]
-        goarch: [amd64]
+        OS: [linux, windows]
+        ARCH: [amd64]
     steps:
       - uses: actions/checkout@v4
 
@@ -24,13 +24,13 @@ jobs:
 
       - name: Build
         run: |
-          env GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -v -o mediarizer2-${{ matrix.goos }}-${{ matrix.goarch }} ./app
+          env GOOS=${{ matrix.OS }} GOARCH=${{ matrix.ARCH }} go build -v -o mediarizer2-${{ matrix.OS }}-${{ matrix.ARCH }} ./app
 
       - name: Archive production artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: mediarizer2-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: mediarizer2-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: mediarizer2-${{ matrix.OS }}-${{ matrix.ARCH }}
+          path: mediarizer2-${{ matrix.OS }}-${{ matrix.ARCH }}
 
   release:
     needs: build
@@ -55,21 +55,21 @@ jobs:
           prerelease: false
 
       - name: Upload Release Asset Linux
-        uses: actions/upload-release-asset@v1
+        uses: sekwah41/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./
+          asset_path: ./mediarizer2-linux-amd64
           asset_name: mediarizer2-linux-amd64
           asset_content_type: application/octet-stream
 
       - name: Upload Release Asset Windows
-        uses: actions/upload-release-asset@v1
+        uses: sekwah41/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./
+          asset_path: ./mediarizer2-windows-amd64
           asset_name: mediarizer2-windows-amd64
           asset_content_type: application/octet-stream
