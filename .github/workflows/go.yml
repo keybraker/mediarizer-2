@@ -44,8 +44,8 @@ jobs:
       - name: Archive production artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: mediarizer2-${{ matrix.ARCH }}-${{ matrix.OS }}.${{ matrix.EXT }}
-          path: mediarizer2-${{ matrix.ARCH }}-${{ matrix.OS }}.${{ matrix.EXT }}
+          name: mediarizer2-${{ matrix.OS }}-${{ matrix.ARCH }}.${{ matrix.EXT }}
+          path: mediarizer2-${{ matrix.OS }}-${{ matrix.ARCH }}.${{ matrix.EXT }}
 
   release:
     needs: build
