@@ -19,8 +19,6 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: '1.22'
-      - name: Install dependencies
-        run: go get .
       - name: Build
         run: env GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -v -o mediarizer2-${{ matrix.goos }}-${{ matrix.goarch }} ./app
       - name: Upload to Release
