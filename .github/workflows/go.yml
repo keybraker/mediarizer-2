@@ -106,7 +106,5 @@ jobs:
 
       - name: Upload release binaries
         uses: alexellis/upload-assets@0.4.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           asset_paths: '["mediarizer2-darwin-amd64.app"]'
