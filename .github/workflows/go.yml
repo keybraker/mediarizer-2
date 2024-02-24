@@ -4,8 +4,7 @@ name: Go Build and Release
 #   push:
 #     tags:
 #       - 'v*'
-on:
-  [push]
+on: [push]
 
 jobs:
   build:
@@ -24,19 +23,39 @@ jobs:
 
       - name: Build
         run: |
-          env GOOS=${{ matrix.OS }} GOARCH=${{ matrix.ARCH }} go build -v -o mediarizer2-${{ matrix.OS }}-${{ matrix.ARCH }} ./app
+          GOOS=${{ matrix.OS }} GOARCH=${{ matrix.ARCH }}
+          EXT=""
+          if [ "$GOOS" = "windows" ]; then
+            EXT=".exe"
+          fi
+          go build -v -o mediarizer2-${{ matrix.ARCH }}-${{ matrix.OS }}$EXT ./app
+        # run: |
+        #   env GOOS=${{ matrix.OS }} GOARCH=${{ matrix.ARCH }} go build -v -o mediarizer2-${{ matrix.ARCH }}-${{ matrix.OS }} ./app
 
       - name: Archive production artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: mediarizer2-${{ matrix.OS }}-${{ matrix.ARCH }}
-          path: mediarizer2-${{ matrix.OS }}-${{ matrix.ARCH }}
+          name: mediarizer2-${{ matrix.ARCH }}-${{ matrix.OS }}
+          path: mediarizer2-${{ matrix.ARCH }}-${{ matrix.OS }}
 
   release:
     needs: build
     runs-on: ubuntu-latest
     # if: github.ref == 'refs/heads/main'
     steps:
+      - name: Fetch Tags
+        run: git fetch --depth=1 origin +refs/tags/*:refs/tags/*
+
+      - name: Get commits since last tag
+        id: get_commits
+        run: |
+          LATEST_TAG=$(git describe --tags --abbrev=0)
+          if [ -z "$LATEST_TAG" ]; then
+            LATEST_TAG=$(git rev-list --max-parents=0 HEAD)
+          fi
+          COMMIT_MESSAGES=$(git log $LATEST_TAG..HEAD --pretty=format:"%h - %s")
+          echo "::set-output name=commits::$COMMIT_MESSAGES"
+
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
@@ -44,10 +63,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ github.run_number }}
-          release_name: Release ${{ github.run_number }}
+          release_name: Release ${{ github.ref_name }} (${{ github.run_number }})
           body: |
-            Release ${{ github.run_number }}
-            - continuous deployment
+            - Commits included:
+              ${{ steps.get_commits.outputs.commits }}
           draft: false
           prerelease: false
 
