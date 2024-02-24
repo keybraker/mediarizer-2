@@ -1,9 +1,10 @@
 name: Go Build and Release
 
-on:
-  push:
-    tags:
-      - 'v*'
+# on:
+#   push:
+#     tags:
+#       - 'v*'
+on: [push]
 
 jobs:
   build:
@@ -42,6 +43,8 @@ jobs:
     runs-on: ubuntu-latest
     # if: github.ref == 'refs/heads/main'
     steps:
+      - uses: actions/checkout@v2
+
       - name: Fetch Tags
         run: git fetch --depth=1 origin +refs/tags/*:refs/tags/*
 
