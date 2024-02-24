@@ -1,10 +1,9 @@
 name: Go Build and Release
 
-# on:
-#   push:
-#     tags:
-#       - 'v*'
-on: [push]
+on:
+  push:
+    tags:
+      - 'v*'
 
 jobs:
   build:
@@ -69,38 +68,19 @@ jobs:
           COMMIT_MESSAGES=$(git log $LATEST_TAG..HEAD --pretty=format:"%h - %s")
           echo "::set-output name=commits::$COMMIT_MESSAGES"
 
-      - name: Get Artifact IDs
-        id: get_artifacts
-        run: |
-          ARTIFACTS=$(curl \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "${{ github.api_url }}/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts")
-          WINDOWS_ARTIFACT_ID=$(echo "$ARTIFACTS" | jq -r '.artifacts[] | select(.name=="mediarizer2-windows-amd64.exe").id')
-          LINUX_ARTIFACT_ID=$(echo "$ARTIFACTS" | jq -r '.artifacts[] | select(.name=="mediarizer2-linux-amd64.bin").id')
-          DARWIN_AMD64_ARTIFACT_ID=$(echo "$ARTIFACTS" | jq -r '.artifacts[] | select(.name=="mediarizer2-darwin-amd64.app").id')
-          DARWIN_ARM64_ARTIFACT_ID=$(echo "$ARTIFACTS" | jq -r '.artifacts[] | select(.name=="mediarizer2-darwin-arm64.app").id')
-          echo "::set-output name=windows::$WINDOWS_ARTIFACT_ID"
-          echo "::set-output name=linux::$LINUX_ARTIFACT_ID"
-          echo "::set-output name=darwin_amd64::$DARWIN_AMD64_ARTIFACT_ID"
-          echo "::set-output name=darwin_arm64::$DARWIN_ARM64_ARTIFACT_ID"
-
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ github.run_id }}
-          release_name: Release ${{ github.actor_id }}
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
           body: |
             - Commits included:
               ${{ steps.get_commits.outputs.commits }}
             - Binaries:
-              [mediarizer2-windows-amd64.exe](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ github.steps.get_artifacts.outputs.windows }})
-              [mediarizer2-linux-amd64.bin](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ steps.get_artifacts.outputs.linux }})
-              [mediarizer2-darwin-amd64.app](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ steps.get_artifacts.outputs.darwin_amd64 }})
-              [mediarizer2-darwin-arm64.app](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ steps.get_artifacts.outputs.darwin_arm64 }})
+              (Download page)[https://github.com/keybraker/mediarizer-2/actions/runs/${{ github.run_id }}#artifacts]
           draft: false
           prerelease: false
 
