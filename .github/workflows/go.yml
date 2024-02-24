@@ -80,7 +80,7 @@ jobs:
             - Commits included:
               ${{ steps.get_commits.outputs.commits }}
             - Binaries:
-              (Download page)[https://github.com/keybraker/mediarizer-2/actions/runs/${{ github.run_id }}#artifacts]
+              [Download page](https://github.com/keybraker/mediarizer-2/actions/runs/${{ github.run_id }}#artifacts)
           draft: false
           prerelease: false
 
