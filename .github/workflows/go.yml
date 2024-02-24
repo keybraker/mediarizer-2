@@ -11,39 +11,61 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        goos: [windows, linux]
+        goos: [linux, windows]
         goarch: [amd64]
-
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Go
+
+      - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: '1.22'
+
       - name: Build
-        run: env GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -v -o mediarizer2-${{ matrix.goos }}-${{ matrix.goarch }} ./app
-      - name: Upload to Release
-        id: upload-release-asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          env GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -v -o mediarizer2-${{ matrix.goos }}-${{ matrix.goarch }} ./app
+
+      - name: Archive production artifacts
+        uses: actions/upload-artifact@v3
         with:
-          upload_url: ${{ steps.create-release.outputs.upload_url }}
-          asset_path: ./mediarizer2-${{ matrix.goos }}-${{ matrix.goarch }}
-          asset_name: mediarizer2-${{ matrix.goos }}-${{ matrix.goarch }}
-          asset_content_type: application/octet-stream
+          name: mediarizer2-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: mediarizer2-${{ matrix.goos }}-${{ matrix.goarch }}
 
   release:
     needs: build
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
     steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v3
+
       - name: Create Release
-        id: create-release
+        id: create_release
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
+          tag_name: ${{ github.run_number }}
+          release_name: Release ${{ github.run_number }}
           draft: false
           prerelease: false
+
+      - name: Upload Release Asset Linux
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./mediarizer2-linux-amd64
+          asset_name: mediarizer2-linux-amd64
+          asset_content_type: application/octet-stream
+
+      - name: Upload Release Asset Windows
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./mediarizer2-windows-amd64
+          asset_name: mediarizer2-windows-amd64
+          asset_content_type: application/octet-stream
