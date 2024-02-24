@@ -102,8 +102,10 @@ jobs:
               --data-binary "@$asset_path" \
               "${{ steps.create_release.outputs.upload_url }}?name=$(urlencode $asset_name)"
           done
-          #   echo "Uploading $file"
-          #   asset_name=$(basename $file)
-          #   echo "Asset Name: $asset_name"
-          #   curl -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Content-Type: application/octet-stream" --data-binary @$file ${{ steps.create_release.outputs.upload_url }}?name=$asset_name
-          # done
+
+      - name: Upload release binaries
+        uses: alexellis/upload-assets@0.4.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          asset_paths: '["./mediarizer2-darwin-amd64.app", "./mediarizer2-darwin-arm64.app", "./mediarizer2-linux-amd64.bin", "./mediarizer2-windows-amd64.exe"]'
