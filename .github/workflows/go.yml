@@ -109,4 +109,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          asset_paths: '["./mediarizer2-darwin-amd64.app", "./mediarizer2-darwin-arm64.app", "./mediarizer2-linux-amd64.bin", "./mediarizer2-windows-amd64.exe"]'
+          asset_paths: '["mediarizer2-darwin-amd64.app", "mediarizer2-darwin-arm64.app", "./mediarizer2-linux-amd64.bin", "./mediarizer2-windows-amd64.exe"]'
