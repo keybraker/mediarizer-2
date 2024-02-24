@@ -45,8 +45,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: version 1 #${{ github.run_number }}
-          release_name: Release version 1 #${{ github.run_number }}
+          tag_name: ${{ github.run_number }}
+          release_name: Release ${{ github.run_number }}
+          body: |
+            Release ${{ github.run_number }}
+            - continuous deployment
+            - reference ${{ github.ref }}
           draft: false
           prerelease: false
 
