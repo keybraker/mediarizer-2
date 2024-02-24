@@ -91,7 +91,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ github.actor_id }}
+          tag_name: ${{ github.run_id }}
           release_name: Release ${{ github.actor_id }}
           body: |
             - Commits included:
