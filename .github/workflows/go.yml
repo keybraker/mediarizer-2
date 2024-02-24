@@ -78,6 +78,7 @@ jobs:
           tag_name: ${{ github.run_number }}
           release_name: Release ${{ github.ref_name }} (${{ github.run_number }})
           body: |
+            - All binaries available in release notes
             - Commits included:
               ${{ steps.get_commits.outputs.commits }}
           draft: false
@@ -106,6 +107,6 @@ jobs:
       - name: Upload release binaries
         uses: alexellis/upload-assets@0.4.0
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           asset_paths: '["./mediarizer2-darwin-amd64.app", "./mediarizer2-darwin-arm64.app", "./mediarizer2-linux-amd64.bin", "./mediarizer2-windows-amd64.exe"]'
