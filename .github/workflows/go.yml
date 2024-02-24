@@ -46,7 +46,6 @@ jobs:
         with:
           name: mediarizer2-${{ matrix.OS }}-${{ matrix.ARCH }}.${{ matrix.EXT }}
           path: mediarizer2-${{ matrix.OS }}-${{ matrix.ARCH }}.${{ matrix.EXT }}
-      
       - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
         env:
@@ -102,7 +101,18 @@ jobs:
         run: |
           for file in mediarizer2-*; do
             echo "Uploading $file"
+            asset_path="$file"
             asset_name=$(basename $file)
             echo "Asset Name: $asset_name"
-            curl -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Content-Type: application/octet-stream" --data-binary @$file ${{ steps.create_release.outputs.upload_url }}?name=$asset_name
+            curl \
+              -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$asset_path" \
+              "${{ steps.create_release.outputs.upload_url }}?name=$(urlencode $asset_name)"
           done
+          #   echo "Uploading $file"
+          #   asset_name=$(basename $file)
+          #   echo "Asset Name: $asset_name"
+          #   curl -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Content-Type: application/octet-stream" --data-binary @$file ${{ steps.create_release.outputs.upload_url }}?name=$asset_name
+          # done
