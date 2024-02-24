@@ -50,6 +50,21 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - OS: linux
+            ARCH: amd64
+            EXT: "bin"
+          - OS: windows
+            ARCH: amd64
+            EXT: "exe"
+          - OS: darwin
+            ARCH: amd64
+            EXT: "app"
+          - OS: darwin
+            ARCH: arm64
+            EXT: "app"
     # if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v2
@@ -81,10 +96,10 @@ jobs:
             - Commits included:
               ${{ steps.get_commits.outputs.commits }}
             - Binaries:
-              ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}/mediarizer2-linux-amd64.bin
-              ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}/mediarizer2-windows-amd64.exe
-              ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}/mediarizer2-darwin-amd64.app
-              ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}/mediarizer2-darwin-arm64.app
+              [mediarizer2-linux-amd64.bin](https://github.com/keybraker/mediarizer-2/releases/download/${{ github.ref_name }}/mediarizer2-linux-amd64.bin)
+              [mediarizer2-windows-amd64.exe](https://github.com/keybraker/mediarizer-2/releases/download/${{ github.ref_name }}/mediarizer2-windows-amd64.exe)
+              [mediarizer2-darwin-amd64.app](https://github.com/keybraker/mediarizer-2/releases/download/${{ github.ref_name }}/mediarizer2-darwin-amd64.app)
+              [mediarizer2-darwin-arm64.app](https://github.com/keybraker/mediarizer-2/releases/download/${{ github.ref_name }}/mediarizer2-darwin-arm64.app)
           draft: false
           prerelease: false
 
@@ -94,16 +109,26 @@ jobs:
           path: ./
 
       - name: Upload Release Assets
-        run: |
-          for file in mediarizer2-*; do
-            echo "Uploading $file"
-            asset_path="$file"
-            asset_name=$(basename $file)
-            echo "Asset Name: $asset_name"
-            curl \
-              -X POST \
-              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              -H "Content-Type: application/octet-stream" \
-              --data-binary "@$asset_path" \
-              "${{ steps.create_release.outputs.upload_url }}?name=$(urlencode $asset_name)"
-          done
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./mediarizer2-${{ matrix.OS }}-${{ matrix.ARCH }}.${{ matrix.EXT }}
+          asset_name: mediarizer2-${{ matrix.OS }}-${{ matrix.ARCH }}.${{ matrix.EXT }}
+          asset_content_type: application/octet-stream
+
+      # - name: Upload Release Assets
+      #   run: |
+      #     for file in mediarizer2-*; do
+      #       echo "Uploading $file"
+      #       asset_path="$file"
+      #       asset_name=$(basename $file)
+      #       echo "Asset Name: $asset_name"
+      #       curl \
+      #         -X POST \
+      #         -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+      #         -H "Content-Type: application/octet-stream" \
+      #         --data-binary "@$asset_path" \
+      #         "${{ steps.create_release.outputs.upload_url }}?name=$(urlencode $asset_name)"
+      #     done
