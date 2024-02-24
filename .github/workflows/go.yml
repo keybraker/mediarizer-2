@@ -29,7 +29,7 @@ jobs:
       - name: Archive production artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: mediarizer2-${{ matrix.OS }}-${{ matrix.ARCH }}
+          name: artifacts
           path: mediarizer2-${{ matrix.OS }}-${{ matrix.ARCH }}
 
   release:
@@ -37,9 +37,6 @@ jobs:
     runs-on: ubuntu-latest
     # if: github.ref == 'refs/heads/main'
     steps:
-      - name: Download Artifacts
-        uses: actions/download-artifact@v3
-
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
@@ -54,22 +51,28 @@ jobs:
           draft: false
           prerelease: false
 
+      - name: Download Artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: artifacts
+          path: ./
+
       - name: Upload Release Asset Linux
-        uses: sekwah41/upload-release-asset@v1
+        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./mediarizer2-linux-amd64
+          asset_path: ./artifacts
           asset_name: mediarizer2-linux-amd64
           asset_content_type: application/octet-stream
 
       - name: Upload Release Asset Windows
-        uses: sekwah41/upload-release-asset@v1
+        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./mediarizer2-windows-amd64
+          asset_path: ./artifacts
           asset_name: mediarizer2-windows-amd64
           asset_content_type: application/octet-stream
