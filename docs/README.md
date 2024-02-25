@@ -52,18 +52,18 @@ Here's a list of available flags:
 
 | Name         |          Argument           |  Default  | Description                                                                            | Mandatory |
 | :----------- | :-------------------------: | :-------: | :------------------------------------------------------------------------------------- | :-------: |
-| `-input`     |          `<path>`           |    `-`    | Path to source file or directory                                                       |   true    |
-| `-output`    |          `<path>`           |    `-`    | Path to destination directory                                                          |   true    |
-| `-unknown`   |          `<bool>`           | `<true>`  | Move files with no metadata to undetermined folder                                     |   false   |
-| `-duplicate` |         `<string>`          | `<move>`  | Duplication handling, default "move " (move, skip, delete)                             |   false   |
-| `-location`  |          `<bool>`           | `<false>` | Organize files based on their geo location                                             |   false   |
-| `-types`     | `<comma separated strings>` |  `<all>`  | Comma separated file extensions to organize (.jpg, .png, .gif, .mp4, .avi, .mov, .mkv) |   false   |
-| `-photo`     |          `<bool>`           | `<true>`  | Only organise photos                                                                   |   false   |
-| `-video`     |          `<bool>`           | `<true>`  | Only organise videos                                                                   |   false   |
-| `-format`    |         `<string>`          | `<name>`  | Naming format for month folders, default "word" (word, number, combined)               |   false   |
-| `-help`      |             `-`             |    `-`    | Display usage guide                                                                    |   false   |
-| `-verbose`   |          `<bool>`           | `<true>`  | Display progress information in console                                                |   false   |
-| `-version`   |             `-`             |    `-`    | Display version information                                                            |   false   |
+| `input`      |          `<string>`         |    `-`    | Path to source file or directory                                                       |   true    |
+| `output`     |          `<string>`         |    `-`    | Path to destination directory                                                          |   true    |
+| `unknown`    |          `<bool>`           | `<true>`  | Move files with no metadata to undetermined folder                                     |   false   |
+| `duplicate`  |         `<string>`          | `<move>`  | Duplication handling, default "move " (move, skip, delete)                             |   false   |
+| `location`   |          `<bool>`           | `<false>` | Organize files based on their geo location                                             |   false   |
+| `types`      | `<comma separated strings>` |  `<all>`  | Comma separated file extensions to organize (.jpg, .png, .gif, .mp4, .avi, .mov, .mkv) |   false   |
+| `photo`      |          `<bool>`           | `<true>`  | Only organise photos                                                                   |   false   |
+| `video`      |          `<bool>`           | `<true>`  | Only organise videos                                                                   |   false   |
+| `format`     |         `<string>`          | `<word>`  | Naming format for month folders, default "word" (word, number, combined)               |   false   |
+| `help`       |             `-`             |    `-`    | Display usage guide                                                                    |   false   |
+| `verbose`    |          `<bool>`           | `<false>` | Display progress information in console                                                |   false   |
+| `version`    |             `-`             |    `-`    | Display version information                                                            |   false   |
 
 ## Contributing
 
