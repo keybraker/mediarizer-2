@@ -53,24 +53,6 @@ func init() {
 	ErrorLogger = log.New(os.Stdout, "\033[1m\033[31merror\033[0m:\t", log.Ldate|log.Ltime)
 }
 
-func logger(loggerType string, message string) {
-	switch loggerType {
-	case "info":
-		InfoLogger.Println(message)
-	case "verbose":
-		if *verbose {
-			VerboseLogger.Println(message)
-		}
-	case "warning":
-		WarningLogger.Println(message)
-	case "error":
-		ErrorLogger.Println(message)
-	case "fatal":
-		ErrorLogger.Fatal(message)
-	}
-
-}
-
 func flagProcessor() []string {
 	if *showHelp {
 		displayHelp()
@@ -83,7 +65,7 @@ func flagProcessor() []string {
 	}
 
 	if *inputPath == "" || *outputPath == "" {
-		logger("fatal", "input and output paths are mandatory")
+		logger(LoggerTypeFatal, "input and output paths are mandatory")
 	}
 
 	var fileTypes []string
@@ -95,15 +77,14 @@ func flagProcessor() []string {
 			if isPhoto(strings.ToLower(fileTypes[i])) {
 				isValidType = true
 				break
-			}
-			if isVideo(strings.ToLower(fileTypes[i])) {
+			} else if isVideo(strings.ToLower(fileTypes[i])) {
 				isValidType = true
 				break
 			}
 		}
 
 		if !isValidType {
-			logger("fatal", "one or more file types supplied are invalid")
+			logger(LoggerTypeFatal, "one or more file types supplied are invalid")
 		}
 	}
 
@@ -114,58 +95,80 @@ func flagProcessor() []string {
 	return fileTypes
 }
 
-func main() {
-	flag.Parse()
-	fileTypes := flagProcessor()
+func startLoggerHandlers(wg *sync.WaitGroup, infoQueue, warnQueue chan string, errorQueue chan error) {
+	wg.Add(3)
 
-	sourcePath := filepath.Clean(*inputPath)
-	destinationPath := filepath.Clean(*outputPath)
+	go func() {
+		defer wg.Done()
+		infoHandler(infoQueue)
+	}()
 
+	go func() {
+		defer wg.Done()
+		warnHandler(warnQueue)
+	}()
+
+	go func() {
+		defer wg.Done()
+		errorHandler(errorQueue)
+	}()
+}
+
+func validatePaths(sourcePath, destinationPath string) {
 	if sourcePath == "" || destinationPath == "" {
-		logger("fatal", "input and output paths must be supplied")
+		logger(LoggerTypeFatal, "input and output paths must be supplied")
 	}
 
 	sourceDrive := filepath.VolumeName(sourcePath)
 	destinationDrive := filepath.VolumeName(destinationPath)
 
 	if sourceDrive == "" || destinationDrive == "" {
-		logger("fatal", "input and output paths must be on drives")
-	} else if sourceDrive == destinationDrive {
-		logger("fatal", "input and output paths must on the same drive")
+		logger(LoggerTypeFatal, "input and output paths must be on drives")
+	} else if sourceDrive != destinationDrive {
+		logger(LoggerTypeFatal, fmt.Sprintf("input and output paths must be on the same drive: source drive (%s), destination drive (%s)", sourceDrive, destinationDrive))
 	}
+}
+
+func main() {
+	flag.Parse()
+	fileTypes := flagProcessor()
+
+	sourcePath := filepath.Clean(*inputPath)
+	destinationPath := filepath.Clean(*outputPath)
+	validatePaths(sourcePath, destinationPath)
 
 	fileQueue := make(chan FileInfo, 100)
-	defer close(fileQueue)
 	infoQueue := make(chan string, 50)
-	defer close(infoQueue)
 	warnQueue := make(chan string, 10)
-	defer close(warnQueue)
 	errorQueue := make(chan error, 50)
-	defer close(errorQueue)
-	done := make(chan struct{})
 
-	go infoHandler(infoQueue)
-	go warnHandler(warnQueue)
-	go errorHandler(errorQueue)
+	var wg sync.WaitGroup
 
-	logger("info", "Counting files to move...")
+	startLoggerHandlers(&wg, infoQueue, warnQueue, errorQueue)
+
+	logger(LoggerTypeInfo, "Counting files to move...")
 	totalFiles := countFiles(sourcePath, fileTypes, *organisePhotos, *organiseVideos)
-	logger("info", "Completed.")
+	logger(LoggerTypeInfo, fmt.Sprintf("%d files to be proceeded.", totalFiles))
+
+	if totalFiles == 0 {
+		logger(LoggerTypeInfo, "No files to move.")
+		return
+	}
 
 	hashCache := &sync.Map{}
 
-	logger("info", "Creating file hash map...")
+	logger(LoggerTypeInfo, "Creating file hash map...")
 	fileHashMap, err := hash.HashImagesInPath(destinationPath, hashCache)
 	if err != nil {
-		logger("info", "Failed to create file has map.")
-		logger("fatal", err.Error())
+		logger(LoggerTypeInfo, "Failed to create file has map.")
+		logger(LoggerTypeFatal, err.Error())
 	}
-	logger("info", "Completed.")
+
+	done := make(chan struct{})
 
 	go creator(
 		sourcePath,
 		fileQueue,
-		infoQueue,
 		warnQueue,
 		errorQueue,
 		*geoLocation,
@@ -181,8 +184,6 @@ func main() {
 	go consumer(
 		destinationPath,
 		fileQueue,
-		infoQueue,
-		warnQueue,
 		errorQueue,
 		*geoLocation,
 		*format,
@@ -194,24 +195,24 @@ func main() {
 
 	<-done
 
-	logger("info", strconv.Itoa(totalFiles)+" files processed.")
+	logger(LoggerTypeInfo, strconv.Itoa(totalFiles)+" files processed.")
 }
 
 func errorHandler(errorQueue chan error) {
 	for err := range errorQueue {
-		logger("error", fmt.Sprintf("%v\n", err))
+		logger(LoggerTypeError, fmt.Sprintf("%v\n", err))
 	}
 }
 
 func warnHandler(warnQueue chan string) {
 	for warning := range warnQueue {
-		logger("warn", fmt.Sprintf("%v\n", warning))
+		logger(LoggerTypeWarning, fmt.Sprintf("%v\n", warning))
 	}
 }
 
 func infoHandler(infoQueue chan string) {
 	for message := range infoQueue {
-		logger("info", fmt.Sprintf("%v\n", message))
+		logger(LoggerTypeInfo, fmt.Sprintf("%v\n", message))
 	}
 }
 
@@ -240,9 +241,8 @@ func countFiles(rootPath string, fileTypes []string, organisePhotos bool, organi
 		if !info.IsDir() {
 			ext := strings.ToLower(filepath.Ext(path))
 
-			if organisePhotos && isPhoto(ext) && (len(fileTypes) == 0 || arrayContains(fileTypes, ext)) {
-				count++
-			} else if organiseVideos && isVideo(ext) && (len(fileTypes) == 0 || arrayContains(fileTypes, ext)) {
+			if (organisePhotos && isPhoto(ext) || organiseVideos && isVideo(ext)) &&
+				(len(fileTypes) == 0 || arrayContains(fileTypes, ext)) {
 				count++
 			}
 		}

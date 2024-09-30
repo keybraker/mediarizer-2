@@ -7,6 +7,14 @@ import (
 	"path/filepath"
 )
 
+const (
+	LoggerTypeInfo    = "info"
+	LoggerTypeVerbose = "verbose"
+	LoggerTypeWarning = "warning"
+	LoggerTypeError   = "error"
+	LoggerTypeFatal   = "fatal"
+)
+
 func logMoveAction(sourcePath, destinationDirectory string, isDuplicate bool, duplicateStrategy string, processedFiles int, totalFiles int) (string, error) {
 	colorCode := "\033[32m"
 	actionName := "Moved (original)"
@@ -64,5 +72,24 @@ func logMoveAction(sourcePath, destinationDirectory string, isDuplicate bool, du
 	} else {
 		log := fmt.Sprintf("\033[1m[%.2f%% | %s] %s%s\033[0m %s\n └─ from %s%s\033[0m\n └─── to %s%s\033[0m\n", percentage, fileSizeStr, colorCode, actionName, fileName, colorCode, source, colorCode, destination)
 		return log, nil
+	}
+}
+
+func logger(loggerType string, message string) {
+	switch loggerType {
+	case LoggerTypeInfo:
+		InfoLogger.Println(message)
+	case LoggerTypeVerbose:
+		if *verbose {
+			VerboseLogger.Println(message)
+		}
+	case LoggerTypeWarning:
+		WarningLogger.Println(message)
+	case LoggerTypeError:
+		ErrorLogger.Println(message)
+	case LoggerTypeFatal:
+		ErrorLogger.Fatal(message)
+	default:
+		ErrorLogger.Println("Unknown logger type:", loggerType)
 	}
 }

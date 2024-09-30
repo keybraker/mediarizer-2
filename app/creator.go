@@ -19,7 +19,6 @@ var featureCollection FeatureCollection
 func creator(
 	sourcePath string,
 	fileQueue chan<- FileInfo,
-	infoQueue chan<- string,
 	warnQueue chan<- string,
 	errorQueue chan<- error,
 	geoLocation bool,
@@ -104,14 +103,14 @@ func creator(
 func getFileType(path string, fileTypesToInclude []string, organisePhotos bool, organiseVideos bool) FileType {
 	file, err := os.Open(path)
 	if err != nil {
-		logger("warning", fmt.Sprintf("failed to open file %v: %v", path, err))
+		logger(LoggerTypeWarning, fmt.Sprintf("failed to open file %v: %v", path, err))
 		return FileTypeUnknown
 	}
 	defer file.Close()
 
 	fileInfo, err := file.Stat()
 	if err != nil {
-		logger("warning", fmt.Sprintf("failed to get file info: %v", err))
+		logger(LoggerTypeWarning, fmt.Sprintf("failed to get file info: %v", err))
 		return FileTypeUnknown
 	}
 

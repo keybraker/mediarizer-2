@@ -1,7 +1,6 @@
 package main
 
 import (
-	"container/list"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,8 +12,6 @@ import (
 func consumer(
 	destinationPath string,
 	fileQueue <-chan FileInfo,
-	infoQueue chan<- string,
-	warnQueue chan<- string,
 	errorQueue chan<- error,
 	geoLocation bool,
 	format string,
@@ -22,7 +19,7 @@ func consumer(
 	totalFiles int,
 	duplicateStrategy string,
 	done chan<- struct{}) {
-	processedImages := list.New()
+	/*processedImages := list.New()*/
 	processedFiles := 0
 
 	for fileInfo := range fileQueue {
@@ -50,7 +47,7 @@ func consumer(
 				}
 			}
 
-			err = moveFile(fileInfo.Path, generatedPath, verbose, processedImages, processedFiles, totalFiles, fileInfo.isDuplicate, duplicateStrategy)
+			err = moveFile(fileInfo.Path, generatedPath, verbose /*processedImages,*/, processedFiles, totalFiles, fileInfo.isDuplicate, duplicateStrategy)
 			if err != nil {
 				errorQueue <- fmt.Errorf("failed to move %s to %s: %v", fileInfo.Path, generatedPath, err)
 			}
@@ -65,7 +62,7 @@ func consumer(
 	done <- struct{}{}
 }
 
-func moveFile(sourcePath, destinationPath string, verbose bool, processedImages *list.List, processedFiles int, totalFiles int, isDuplicate bool, duplicateStrategy string) error {
+func moveFile(sourcePath, destinationPath string, verbose bool /*processedImages *list.List,*/, processedFiles int, totalFiles int, isDuplicate bool, duplicateStrategy string) error {
 	destPath := filepath.Dir(destinationPath)
 	if err := os.MkdirAll(destPath, os.ModePerm); err != nil {
 		return fmt.Errorf("failed to create destination directory %s: %v", destPath, err)
@@ -77,7 +74,7 @@ func moveFile(sourcePath, destinationPath string, verbose bool, processedImages 
 			return err
 		}
 
-		logger("verbose", moveActionLog)
+		logger(LoggerTypeVerbose, moveActionLog)
 	}
 
 	_, err := os.Stat(destinationPath)
