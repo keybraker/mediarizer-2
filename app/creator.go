@@ -120,13 +120,13 @@ func processFile(
 		switch duplicateStrategy {
 		case "skip":
 			fmt.Printf("Skipped duplicate file: %v\n", path)
-			logMoveAction(path, "", true, duplicateStrategy, 0, 0)
+			logMoveAction(path, "", true, duplicateStrategy)
 			return
 		case "delete":
 			if err := os.Remove(path); err != nil {
 				errorQueue <- fmt.Errorf("failed to delete duplicate file: %v", err)
 			} else {
-				logMoveAction(path, "", true, duplicateStrategy, 0, 0)
+				logMoveAction(path, "", true, duplicateStrategy)
 			}
 			return
 		}

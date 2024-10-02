@@ -11,7 +11,35 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	"golang.org/x/exp/mmap"
 )
+
+type FileMeta struct {
+	Size    int64
+	ModTime time.Time
+}
+
+type CachedFile struct {
+	FileMeta
+	Hash []byte
+}
+
+type readerAtWrapper struct {
+	readerAt io.ReaderAt
+	offset   int64
+	size     int64
+}
+
+func (r *readerAtWrapper) Read(p []byte) (n int, err error) {
+	if r.offset >= r.size {
+		return 0, io.EOF
+	}
+	n, err = r.readerAt.ReadAt(p, r.offset)
+	r.offset += int64(n)
+	return n, err
+}
 
 // isImageFile checks if the file is an image based on its extension.
 func isImageFile(filePath string) bool {
@@ -23,15 +51,27 @@ func isImageFile(filePath string) bool {
 
 // calculateFileHash calculates the SHA-256 hash of the file at the given filePath.
 func calculateFileHash(filePath string) ([]byte, error) {
-	file, err := os.Open(filePath)
+	readerAt, err := mmap.Open(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open file at %s: %v", filePath, err)
+		return nil, fmt.Errorf("failed to memory-map file %s: %v", filePath, err)
 	}
-	defer file.Close()
+	defer readerAt.Close()
+
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat file %s: %v", filePath, err)
+	}
+	fileSize := fileInfo.Size()
+
+	reader := &readerAtWrapper{
+		readerAt: readerAt,
+		offset:   0,
+		size:     fileSize,
+	}
 
 	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return nil, fmt.Errorf("failed to calculate hash for file: %v", err)
+	if _, err := io.Copy(hash, reader); err != nil {
+		return nil, fmt.Errorf("failed to calculate hash for file %s: %v", filePath, err)
 	}
 
 	return hash.Sum(nil), nil
@@ -39,29 +79,42 @@ func calculateFileHash(filePath string) ([]byte, error) {
 
 // GetFileHash retrieves or calculates the hash of the file at filePath.
 func GetFileHash(filePath string, hashCache *sync.Map) ([]byte, error) {
-	if hash, found := hashCache.Load(filePath); found {
-		return hash.([]byte), nil
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return nil, err
+	}
+	meta := FileMeta{Size: info.Size(), ModTime: info.ModTime()}
+
+	if cached, found := hashCache.Load(filePath); found {
+		cachedFile := cached.(CachedFile)
+		if cachedFile.Size == meta.Size && cachedFile.ModTime.Equal(meta.ModTime) {
+			return cachedFile.Hash, nil
+		}
 	}
 
-	calculatedHash, err := calculateFileHash(filePath)
+	hashValue, err := calculateFileHash(filePath)
 	if err != nil {
 		return nil, err
 	}
 
-	hashCache.Store(filePath, calculatedHash)
-	return calculatedHash, nil
+	cachedFile := CachedFile{
+		FileMeta: meta,
+		Hash:     hashValue,
+	}
+	hashCache.Store(filePath, cachedFile)
+
+	return hashValue, nil
 }
 
 // hashImagesInPath hashes all images in the given path and updates the fileHashMap.
 func HashImagesInPath(path string, hashCache *sync.Map, hashedFiles *int64) (*sync.Map, error) {
 	fileHashMap := &sync.Map{}
-	fileChan := make(chan string) // Channel to pass file paths to workers
-	errChan := make(chan error)   // Channel to collect errors
-	var wg sync.WaitGroup         // WaitGroup to track the worker goroutines
+	fileChan := make(chan string)
+	errChan := make(chan error)
+	var wg sync.WaitGroup
 
-	numWorkers := runtime.NumCPU() / 2
+	numWorkers := runtime.NumCPU() * 4
 
-	// Start worker goroutines
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
 		go func() {
@@ -84,9 +137,8 @@ func HashImagesInPath(path string, hashCache *sync.Map, hashedFiles *int64) (*sy
 		}()
 	}
 
-	// Walk the directory and send file paths to the channel
 	go func() {
-		defer close(fileChan) // Close the channel when done
+		defer close(fileChan)
 		err := filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
 			if err != nil {
 				errChan <- fmt.Errorf("failed to walk path %s: %v", filePath, err)
@@ -94,25 +146,22 @@ func HashImagesInPath(path string, hashCache *sync.Map, hashedFiles *int64) (*sy
 			}
 
 			if !info.IsDir() {
-				fileChan <- filePath // Send file to channel for hashing
+				fileChan <- filePath
 			}
 
 			return nil
 		})
 
-		// If an error occurred during filepath walk, send it to the error channel
 		if err != nil {
 			errChan <- err
 		}
 	}()
 
-	// Wait for all workers to finish
 	go func() {
 		wg.Wait()
-		close(errChan) // Close error channel when all workers are done
+		close(errChan)
 	}()
 
-	// Check for errors during execution
 	for err := range errChan {
 		if err != nil {
 			return nil, err

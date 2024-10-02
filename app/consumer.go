@@ -19,7 +19,6 @@ func consumer(
 	geoLocation bool,
 	format string,
 	verbose bool,
-	totalFiles int,
 	duplicateStrategy string,
 	processedFiles *int64,
 	done chan<- struct{}) {
@@ -39,7 +38,6 @@ func consumer(
 					geoLocation,
 					format,
 					verbose,
-					totalFiles,
 					duplicateStrategy,
 				)
 
@@ -59,7 +57,6 @@ func processFileInfo(
 	geoLocation bool,
 	format string,
 	verbose bool,
-	totalFiles int,
 	duplicateStrategy string,
 ) {
 	var generatedPath string
@@ -93,9 +90,6 @@ func processFileInfo(
 		fileInfo.Path,
 		generatedPath,
 		verbose,
-		/*processedImages,*/
-		0,
-		totalFiles,
 		fileInfo.isDuplicate,
 		duplicateStrategy,
 	)
@@ -104,14 +98,14 @@ func processFileInfo(
 	}
 }
 
-func moveFile(sourcePath, destinationPath string, verbose bool /*processedImages *list.List,*/, processedFiles int, totalFiles int, isDuplicate bool, duplicateStrategy string) error {
+func moveFile(sourcePath, destinationPath string, verbose bool, isDuplicate bool, duplicateStrategy string) error {
 	destPath := filepath.Dir(destinationPath)
 	if err := os.MkdirAll(destPath, os.ModePerm); err != nil {
 		return fmt.Errorf("failed to create destination directory %s: %v", destPath, err)
 	}
 
 	if verbose {
-		moveActionLog, err := logMoveAction(sourcePath, destPath, isDuplicate, duplicateStrategy, processedFiles, totalFiles)
+		moveActionLog, err := logMoveAction(sourcePath, destPath, isDuplicate, duplicateStrategy)
 		if err != nil {
 			return err
 		}

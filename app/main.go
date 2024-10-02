@@ -41,9 +41,7 @@ func main() {
 	flag.Parse()
 	fileTypes := flagProcessor()
 
-	sourcePath := filepath.Clean(*inputPath)
-	destinationPath := filepath.Clean(*outputPath)
-	validatePaths(sourcePath, destinationPath)
+	sourcePath, destinationPath := validatePaths(*inputPath, *outputPath)
 
 	fileQueue := make(chan FileInfo, 100)
 	infoQueue := make(chan string, 50)
@@ -114,7 +112,6 @@ func main() {
 		*geoLocation,
 		*format,
 		*verbose,
-		totalFilesToMove,
 		*duplicateStrategy,
 		&processedFiles,
 		done,
@@ -142,7 +139,7 @@ func formatElapsedTime(elapsed time.Duration) string {
 		return fmt.Sprintf("%d minutes and %d seconds", minutes, seconds)
 	}
 
-	return fmt.Sprintf("%.2f seconds.", elapsed.Seconds())
+	return fmt.Sprintf("%.2f seconds", elapsed.Seconds())
 }
 
 func spinner(stopSpinner chan bool, verb string, processedFiles *int64, totalFiles int) {
@@ -269,7 +266,10 @@ func directoryExists(path string) error {
 	return nil
 }
 
-func validatePaths(sourcePath, destinationPath string) {
+func validatePaths(inputPath, outputPath string) (string, string) {
+	sourcePath := filepath.Clean(inputPath)
+	destinationPath := filepath.Clean(outputPath)
+
 	if sourcePath == "" || destinationPath == "" {
 		logger(LoggerTypeFatal, "input and output paths must be supplied")
 	}
@@ -286,4 +286,6 @@ func validatePaths(sourcePath, destinationPath string) {
 	} else if err := directoryExists(destinationPath); err != nil {
 		logger(LoggerTypeFatal, err.Error())
 	}
+
+	return sourcePath, destinationPath
 }

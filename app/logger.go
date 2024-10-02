@@ -52,7 +52,7 @@ func infoHandler(infoQueue chan string) {
 	}
 }
 
-func logMoveAction(sourcePath, destinationDirectory string, isDuplicate bool, duplicateStrategy string, processedFiles int, totalFiles int) (string, error) {
+func logMoveAction(sourcePath, destinationDirectory string, isDuplicate bool, duplicateStrategy string) (string, error) {
 	colorCode := "\033[32m"
 	actionName := "Moved (original)"
 
