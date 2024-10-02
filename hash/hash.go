@@ -7,8 +7,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // isImageFile checks if the file is an image based on its extension.
@@ -51,32 +53,70 @@ func GetFileHash(filePath string, hashCache *sync.Map) ([]byte, error) {
 }
 
 // hashImagesInPath hashes all images in the given path and updates the fileHashMap.
-func HashImagesInPath(path string, hashCache *sync.Map) (*sync.Map, error) {
+func HashImagesInPath(path string, hashCache *sync.Map, hashedFiles *int64) (*sync.Map, error) {
 	fileHashMap := &sync.Map{}
+	fileChan := make(chan string) // Channel to pass file paths to workers
+	errChan := make(chan error)   // Channel to collect errors
+	var wg sync.WaitGroup         // WaitGroup to track the worker goroutines
 
-	err := filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
+	numWorkers := runtime.NumCPU() / 2
 
-		if info.IsDir() {
-			return nil
-		}
+	// Start worker goroutines
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for filePath := range fileChan {
+				if isImageFile(filePath) {
+					hashValue, err := GetFileHash(filePath, hashCache)
+					if err != nil {
+						errChan <- fmt.Errorf("failed to get file hash for %s: %v", filePath, err)
+						return
+					}
 
-		if isImageFile(filePath) {
-			hashValue, err := GetFileHash(filePath, hashCache)
+					hashStr := hex.EncodeToString(hashValue)
+					fileHashMap.Store(hashStr, true)
+
+					// Increment the hashed files counter
+					atomic.AddInt64(hashedFiles, 1)
+				}
+			}
+		}()
+	}
+
+	// Walk the directory and send file paths to the channel
+	go func() {
+		defer close(fileChan) // Close the channel when done
+		err := filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
 			if err != nil {
-				return fmt.Errorf("failed to get file hash for %s: %v", filePath, err)
+				errChan <- fmt.Errorf("failed to walk path %s: %v", filePath, err)
+				return err
 			}
 
-			hashStr := hex.EncodeToString(hashValue)
-			fileHashMap.Store(hashStr, true)
-		}
+			if !info.IsDir() {
+				fileChan <- filePath // Send file to channel for hashing
+			}
 
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to walk path %s: %v", path, err)
+			return nil
+		})
+
+		// If an error occurred during filepath walk, send it to the error channel
+		if err != nil {
+			errChan <- err
+		}
+	}()
+
+	// Wait for all workers to finish
+	go func() {
+		wg.Wait()
+		close(errChan) // Close error channel when all workers are done
+	}()
+
+	// Check for errors during execution
+	for err := range errChan {
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return fileHashMap, nil

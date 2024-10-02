@@ -55,31 +55,40 @@ func main() {
 	startLoggerHandlers(&wg, infoQueue, warnQueue, errorQueue)
 
 	logger(LoggerTypeInfo, "Counting files in path.")
-	totalFiles := countFiles(sourcePath, fileTypes, *organisePhotos, *organiseVideos)
+	totalFilesToMove := countFiles(sourcePath, fileTypes, *organisePhotos, *organiseVideos)
 
-	if totalFiles == 0 {
+	if totalFilesToMove == 0 {
 		logger(LoggerTypeInfo, "No files in path, exiting.")
 		return
 	} else {
-		logger(LoggerTypeInfo, fmt.Sprintf("%d files to be processed.", totalFiles))
+		logger(LoggerTypeInfo, fmt.Sprintf("%d files to be processed.", totalFilesToMove))
 	}
 
 	hashCache := &sync.Map{}
 
-	logger(LoggerTypeInfo, "Creating file hash-map.")
-	fileHashMap, err := hash.HashImagesInPath(destinationPath, hashCache)
+	// Start a spinner for hash-map creation
+	logger(LoggerTypeInfo, "Creating file hash-map on the destination path.")
+	totalFilesInDestination := countFiles(destinationPath, fileTypes, *organisePhotos, *organiseVideos)
+	var hashedFiles int64
+	stopHashSpinner := make(chan bool)
+	go spinner(stopHashSpinner, "Hashing:", &hashedFiles, totalFilesInDestination)
+
+	// Create the hash map with a progress counter
+	fileHashMap, err := hash.HashImagesInPath(destinationPath, hashCache, &hashedFiles)
 	if err != nil {
+		stopHashSpinner <- true // Stop the spinner in case of error
 		logger(LoggerTypeInfo, "Failed to create file hash map.")
 		logger(LoggerTypeFatal, err.Error())
 	}
 
+	stopHashSpinner <- true // Stop the spinner after hash-map creation is done
 	elapsed := time.Since(start)
 	logger(LoggerTypeInfo, fmt.Sprintf("File hash-map created in %.2f seconds.", elapsed.Seconds()))
 
 	var processedFiles int64
 
 	stopSpinner := make(chan bool)
-	go spinner(stopSpinner, &processedFiles, totalFiles)
+	go spinner(stopSpinner, "Processing:", &processedFiles, totalFilesToMove)
 
 	done := make(chan struct{})
 
@@ -105,7 +114,7 @@ func main() {
 		*geoLocation,
 		*format,
 		*verbose,
-		totalFiles,
+		totalFilesToMove,
 		*duplicateStrategy,
 		&processedFiles,
 		done,
@@ -114,13 +123,29 @@ func main() {
 	<-done
 	stopSpinner <- true
 
-	logger(LoggerTypeInfo, strconv.Itoa(totalFiles)+" files processed.")
+	logger(LoggerTypeInfo, strconv.Itoa(totalFilesToMove)+" files processed.")
 
 	elapsed = time.Since(start)
-	logger(LoggerTypeInfo, fmt.Sprintf("Processing completed in %.2f seconds.", elapsed.Seconds()))
+	elapsedString := formatElapsedTime(elapsed)
+	logger(LoggerTypeInfo, fmt.Sprintf("Processing completed in %s.", elapsedString))
 }
 
-func spinner(stopSpinner chan bool, processedFiles *int64, totalFiles int) {
+func formatElapsedTime(elapsed time.Duration) string {
+	seconds := int(elapsed.Seconds())
+	minutes := seconds / 60
+	seconds = seconds % 60
+
+	if minutes > 0 {
+		if minutes == 1 {
+			return fmt.Sprintf("%d minute and %d seconds", minutes, seconds)
+		}
+		return fmt.Sprintf("%d minutes and %d seconds", minutes, seconds)
+	}
+
+	return fmt.Sprintf("%.2f seconds.", elapsed.Seconds())
+}
+
+func spinner(stopSpinner chan bool, verb string, processedFiles *int64, totalFiles int) {
 	spinChars := `-\|/`
 	i := 0
 	for {
@@ -131,7 +156,7 @@ func spinner(stopSpinner chan bool, processedFiles *int64, totalFiles int) {
 		default:
 			processed := atomic.LoadInt64(processedFiles)
 			percentage := float64(processed) / float64(totalFiles) * 100
-			fmt.Printf("\rProcessing %c | Processed: %d/%d (%.2f%%)", spinChars[i], processed, totalFiles, percentage)
+			fmt.Printf("\r%c | %s: %d/%d (%.2f%%)", spinChars[i], verb, processed, totalFiles, percentage)
 			i = (i + 1) % len(spinChars)
 			time.Sleep(100 * time.Millisecond)
 		}
@@ -237,6 +262,13 @@ func flagProcessor() []string {
 	return fileTypes
 }
 
+func directoryExists(path string) error {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return fmt.Errorf("path %s does not exist", path)
+	}
+	return nil
+}
+
 func validatePaths(sourcePath, destinationPath string) {
 	if sourcePath == "" || destinationPath == "" {
 		logger(LoggerTypeFatal, "input and output paths must be supplied")
@@ -249,5 +281,9 @@ func validatePaths(sourcePath, destinationPath string) {
 		logger(LoggerTypeFatal, "input and output paths must be on drives")
 	} else if sourceDrive != destinationDrive {
 		logger(LoggerTypeFatal, fmt.Sprintf("input and output paths must be on the same drive: source drive (%s), destination drive (%s)", sourceDrive, destinationDrive))
+	} else if err := directoryExists(sourcePath); err != nil {
+		logger(LoggerTypeFatal, err.Error())
+	} else if err := directoryExists(destinationPath); err != nil {
+		logger(LoggerTypeFatal, err.Error())
 	}
 }
