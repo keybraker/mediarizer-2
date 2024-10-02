@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/keybraker/mediarizer-2/duplicate"
@@ -18,48 +21,87 @@ func consumer(
 	verbose bool,
 	totalFiles int,
 	duplicateStrategy string,
+	processedFiles *int64,
 	done chan<- struct{}) {
-	/*processedImages := list.New()*/
-	processedFiles := 0
 
-	for fileInfo := range fileQueue {
-		func(fileInfo FileInfo) {
-			var generatedPath string
+	var wg sync.WaitGroup
+	numWorkers := runtime.NumCPU() / 2
 
-			generatedPath, err := getDestinationPath(destinationPath, fileInfo, geoLocation, format)
-			if err != nil {
-				errorQueue <- err
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for fileInfo := range fileQueue {
+				processFileInfo(
+					fileInfo,
+					destinationPath,
+					errorQueue,
+					geoLocation,
+					format,
+					verbose,
+					totalFiles,
+					duplicateStrategy,
+				)
+
+				atomic.AddInt64(processedFiles, 1)
 			}
-
-			if fileInfo.isDuplicate {
-				generatedPath, err = duplicate.CreateDuplicateFolder(generatedPath, "DUPLICATE")
-				if err != nil {
-					errorQueue <- err
-				}
-				generatedPath = filepath.Join(generatedPath, filepath.Base(fileInfo.Path))
-			} else {
-				_, err = os.Stat(generatedPath)
-				if !os.IsNotExist(err) {
-					generatedPath, err = generateUniquePathName(generatedPath)
-					if err != nil {
-						errorQueue <- err
-					}
-				}
-			}
-
-			err = moveFile(fileInfo.Path, generatedPath, verbose /*processedImages,*/, processedFiles, totalFiles, fileInfo.isDuplicate, duplicateStrategy)
-			if err != nil {
-				errorQueue <- fmt.Errorf("failed to move %s to %s: %v", fileInfo.Path, generatedPath, err)
-			}
-		}(fileInfo)
-
-		processedFiles++
-		// if processedFiles%10 == 0 { // Every 10 files, sleep to let I/O catch up
-		// 	time.Sleep(100 * time.Millisecond)
-		// }
+		}()
 	}
 
+	wg.Wait()
 	done <- struct{}{}
+}
+
+func processFileInfo(
+	fileInfo FileInfo,
+	destinationPath string,
+	errorQueue chan<- error,
+	geoLocation bool,
+	format string,
+	verbose bool,
+	totalFiles int,
+	duplicateStrategy string,
+) {
+	var generatedPath string
+	var err error
+
+	generatedPath, err = getDestinationPath(destinationPath, fileInfo, geoLocation, format)
+	if err != nil {
+		errorQueue <- err
+		return
+	}
+
+	if fileInfo.isDuplicate {
+		generatedPath, err = duplicate.CreateDuplicateFolder(generatedPath, "DUPLICATE")
+		if err != nil {
+			errorQueue <- err
+			return
+		}
+		generatedPath = filepath.Join(generatedPath, filepath.Base(fileInfo.Path))
+	} else {
+		_, err = os.Stat(generatedPath)
+		if !os.IsNotExist(err) {
+			generatedPath, err = generateUniquePathName(generatedPath)
+			if err != nil {
+				errorQueue <- err
+				return
+			}
+		}
+	}
+
+	err = moveFile(
+		fileInfo.Path,
+		generatedPath,
+		verbose,
+		/*processedImages,*/
+		0,
+		totalFiles,
+		fileInfo.isDuplicate,
+		duplicateStrategy,
+	)
+	if err != nil {
+		errorQueue <- fmt.Errorf("failed to move %s to %s: %v", fileInfo.Path, generatedPath, err)
+	}
 }
 
 func moveFile(sourcePath, destinationPath string, verbose bool /*processedImages *list.List,*/, processedFiles int, totalFiles int, isDuplicate bool, duplicateStrategy string) error {

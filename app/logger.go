@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 const (
@@ -14,6 +14,43 @@ const (
 	LoggerTypeError   = "error"
 	LoggerTypeFatal   = "fatal"
 )
+
+func startLoggerHandlers(wg *sync.WaitGroup, infoQueue, warnQueue chan string, errorQueue chan error) {
+	wg.Add(3)
+
+	go func() {
+		defer wg.Done()
+		infoHandler(infoQueue)
+	}()
+
+	go func() {
+		defer wg.Done()
+		warnHandler(warnQueue)
+	}()
+
+	go func() {
+		defer wg.Done()
+		errorHandler(errorQueue)
+	}()
+}
+
+func errorHandler(errorQueue chan error) {
+	for err := range errorQueue {
+		logger(LoggerTypeError, fmt.Sprintf("%v\n", err))
+	}
+}
+
+func warnHandler(warnQueue chan string) {
+	for warning := range warnQueue {
+		logger(LoggerTypeWarning, fmt.Sprintf("%v\n", warning))
+	}
+}
+
+func infoHandler(infoQueue chan string) {
+	for message := range infoQueue {
+		logger(LoggerTypeInfo, fmt.Sprintf("%v\n", message))
+	}
+}
 
 func logMoveAction(sourcePath, destinationDirectory string, isDuplicate bool, duplicateStrategy string, processedFiles int, totalFiles int) (string, error) {
 	colorCode := "\033[32m"
@@ -64,15 +101,11 @@ func logMoveAction(sourcePath, destinationDirectory string, isDuplicate bool, du
 		destination = destinationDirectory
 	}
 
-	percentage := math.Min(100, float64(processedFiles+1)/float64(totalFiles)*100)
-
-	if percentage < 10.00 {
-		log := fmt.Sprintf("\033[1m[0%.2f%% | %s] %s%s\033[0m %s\n └─ from %s%s\033[0m\n └─── to %s%s\033[0m\n", percentage, fileSizeStr, colorCode, actionName, fileName, colorCode, source, colorCode, destination)
-		return log, nil
-	} else {
-		log := fmt.Sprintf("\033[1m[%.2f%% | %s] %s%s\033[0m %s\n └─ from %s%s\033[0m\n └─── to %s%s\033[0m\n", percentage, fileSizeStr, colorCode, actionName, fileName, colorCode, source, colorCode, destination)
-		return log, nil
-	}
+	log := fmt.Sprintf(
+		"\033[1m[%s] %s%s\033[0m %s\n └─ from %s%s\033[0m\n └─── to %s%s\033[0m\n",
+		fileSizeStr, colorCode, actionName, fileName, colorCode, source, colorCode, destination,
+	)
+	return log, nil
 }
 
 func logger(loggerType string, message string) {

@@ -26,18 +26,25 @@ func CreateDuplicateFolder(destinationPath, duplicateFileName string) (string, e
 }
 
 // isDuplicate checks if the file is a duplicate and handles it based on the strategy.
-func IsDuplicate(path string, duplicateStrategy string, fileHashMap map[string]bool, hashCache *sync.Map) (bool, error) {
-	fileHash, err := hash.GetFileHash(path, hashCache)
+func IsDuplicate(
+	path string,
+	duplicateStrategy string,
+	fileHashMap *sync.Map,
+	hashCache *sync.Map,
+) (bool, error) {
+	hashValue, err := hash.GetFileHash(path, hashCache)
 	if err != nil {
 		return false, err
 	}
 
-	hashStr := fmt.Sprintf("%x", fileHash)
+	hashStr := string(hashValue) // Convert []byte to string
 
-	if _, exists := fileHashMap[hashStr]; exists {
+	_, exists := fileHashMap.Load(hashStr)
+	if exists {
 		return true, nil
 	}
 
-	fileHashMap[hashStr] = true
+	fileHashMap.Store(hashStr, true)
+
 	return false, nil
 }

@@ -2,6 +2,7 @@ package hash
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -50,8 +51,8 @@ func GetFileHash(filePath string, hashCache *sync.Map) ([]byte, error) {
 }
 
 // hashImagesInPath hashes all images in the given path and updates the fileHashMap.
-func HashImagesInPath(path string, hashCache *sync.Map) (map[string]bool, error) {
-	fileHashMap := make(map[string]bool)
+func HashImagesInPath(path string, hashCache *sync.Map) (*sync.Map, error) {
+	fileHashMap := &sync.Map{}
 
 	err := filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -63,13 +64,13 @@ func HashImagesInPath(path string, hashCache *sync.Map) (map[string]bool, error)
 		}
 
 		if isImageFile(filePath) {
-			hash, err := GetFileHash(filePath, hashCache)
+			hashValue, err := GetFileHash(filePath, hashCache)
 			if err != nil {
 				return fmt.Errorf("failed to get file hash for %s: %v", filePath, err)
 			}
 
-			hashStr := fmt.Sprintf("%x", hash)
-			fileHashMap[hashStr] = true
+			hashStr := hex.EncodeToString(hashValue)
+			fileHashMap.Store(hashStr, true)
 		}
 
 		return nil

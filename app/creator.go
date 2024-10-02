@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -27,77 +28,135 @@ func creator(
 	organisePhotos bool,
 	organiseVideos bool,
 	duplicateStrategy string,
-	fileHashMap map[string]bool,
+	fileHashMap *sync.Map,
 	hashCache *sync.Map,
 ) {
-	filepath.WalkDir(sourcePath, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			errorQueue <- err
-			return nil
-		}
+	filePaths := make(chan string, 100)
 
-		// skip directories and other non-regular files
-		if !os.FileMode(d.Type()).IsRegular() {
-			return nil
-		}
+	var wg sync.WaitGroup
 
-		fileType := getFileType(path, fileTypesToInclude, organisePhotos, organiseVideos)
+	numWorkers := runtime.NumCPU() / 2
 
-		if fileType == Unknown {
-			if moveUnknown {
-				fileQueue <- FileInfo{Path: path, FileType: Unknown}
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for path := range filePaths {
+				processFile(
+					path,
+					fileQueue,
+					warnQueue,
+					errorQueue,
+					geoLocation,
+					moveUnknown,
+					fileTypesToInclude,
+					organisePhotos,
+					organiseVideos,
+					duplicateStrategy,
+					fileHashMap,
+					hashCache,
+				)
+			}
+		}()
+	}
+
+	go func() {
+		err := filepath.WalkDir(sourcePath, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				errorQueue <- err
+				return nil
+			}
+			if d.IsDir() || !os.FileMode(d.Type()).IsRegular() {
+				return nil
 			}
 
+			filePaths <- path
 			return nil
-		}
-
-		if fileType == FileTypeExcluded {
-			return nil
-		}
-
-		isDuplicate, err := duplicate.IsDuplicate(path, duplicateStrategy, fileHashMap, hashCache)
+		})
 		if err != nil {
 			errorQueue <- err
-			return nil
 		}
+		close(filePaths)
+	}()
 
-		if isDuplicate && duplicateStrategy == "skip" {
+	wg.Wait()
+	close(fileQueue)
+}
+
+func processFile(
+	path string,
+	fileQueue chan<- FileInfo,
+	warnQueue chan<- string,
+	errorQueue chan<- error,
+	geoLocation bool,
+	moveUnknown bool,
+	fileTypesToInclude []string,
+	organisePhotos bool,
+	organiseVideos bool,
+	duplicateStrategy string,
+	fileHashMap *sync.Map,
+	hashCache *sync.Map,
+) {
+	fileType := getFileType(path, fileTypesToInclude, organisePhotos, organiseVideos)
+
+	if fileType == Unknown {
+		if moveUnknown {
+			fileQueue <- FileInfo{Path: path, FileType: Unknown}
+		}
+		return
+	}
+
+	if fileType == FileTypeExcluded {
+		return
+	}
+
+	isDuplicate, err := duplicate.IsDuplicate(path, duplicateStrategy, fileHashMap, hashCache)
+	if err != nil {
+		errorQueue <- err
+		return
+	}
+
+	if isDuplicate {
+		switch duplicateStrategy {
+		case "skip":
 			fmt.Printf("Skipped duplicate file: %v\n", path)
 			logMoveAction(path, "", true, duplicateStrategy, 0, 0)
-			return nil
-		} else if isDuplicate && duplicateStrategy == "delete" {
+			return
+		case "delete":
 			if err := os.Remove(path); err != nil {
 				errorQueue <- fmt.Errorf("failed to delete duplicate file: %v", err)
-				return nil
+			} else {
+				logMoveAction(path, "", true, duplicateStrategy, 0, 0)
 			}
-			logMoveAction(path, "", true, duplicateStrategy, 0, 0)
-			return nil
+			return
+		}
+	}
+
+	if geoLocation {
+		country, err := getCountry(path)
+		if err != nil {
+			errorQueue <- err
+			return
+		} else if country == "" {
+			warnQueue <- fmt.Sprintf("no country found for file: %v", path)
 		}
 
-		if geoLocation {
-			country, err := getCountry(path)
-			if err != nil {
-				errorQueue <- err
-				return nil
-			} else if country == "" {
-				warnQueue <- fmt.Sprintf("no country found for file: %v", path)
-			}
-
-			fileQueue <- FileInfo{Path: path, FileType: fileType, isDuplicate: isDuplicate, Country: country}
-		} else {
-			createdDate, hasCreationDate, err := getCreatedTime(path)
-			if err != nil {
-				errorQueue <- err
-				return nil
-			}
-
-			fileQueue <- FileInfo{Path: path, FileType: fileType, isDuplicate: isDuplicate, Created: createdDate, HasCreationDate: hasCreationDate}
+		fileQueue <- FileInfo{Path: path, FileType: fileType, isDuplicate: isDuplicate, Country: country}
+	} else {
+		createdDate, hasCreationDate, err := getCreatedTime(path)
+		if err != nil {
+			errorQueue <- err
+			return
 		}
 
-		return nil
-	})
-
-	defer close(fileQueue)
+		fileQueue <- FileInfo{
+			Path:            path,
+			FileType:        fileType,
+			isDuplicate:     isDuplicate,
+			Created:         createdDate,
+			HasCreationDate: hasCreationDate,
+		}
+	}
 }
 
 func getFileType(path string, fileTypesToInclude []string, organisePhotos bool, organiseVideos bool) FileType {

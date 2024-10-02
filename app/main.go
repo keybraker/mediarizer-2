@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/keybraker/mediarizer-2/hash"
 )
@@ -32,6 +34,146 @@ var (
 	WarningLogger *log.Logger
 	ErrorLogger   *log.Logger
 )
+
+func main() {
+	start := time.Now()
+
+	flag.Parse()
+	fileTypes := flagProcessor()
+
+	sourcePath := filepath.Clean(*inputPath)
+	destinationPath := filepath.Clean(*outputPath)
+	validatePaths(sourcePath, destinationPath)
+
+	fileQueue := make(chan FileInfo, 100)
+	infoQueue := make(chan string, 50)
+	warnQueue := make(chan string, 10)
+	errorQueue := make(chan error, 50)
+
+	var wg sync.WaitGroup
+
+	startLoggerHandlers(&wg, infoQueue, warnQueue, errorQueue)
+
+	logger(LoggerTypeInfo, "Counting files in path.")
+	totalFiles := countFiles(sourcePath, fileTypes, *organisePhotos, *organiseVideos)
+
+	if totalFiles == 0 {
+		logger(LoggerTypeInfo, "No files in path, exiting.")
+		return
+	} else {
+		logger(LoggerTypeInfo, fmt.Sprintf("%d files to be processed.", totalFiles))
+	}
+
+	hashCache := &sync.Map{}
+
+	logger(LoggerTypeInfo, "Creating file hash-map.")
+	fileHashMap, err := hash.HashImagesInPath(destinationPath, hashCache)
+	if err != nil {
+		logger(LoggerTypeInfo, "Failed to create file hash map.")
+		logger(LoggerTypeFatal, err.Error())
+	}
+
+	elapsed := time.Since(start)
+	logger(LoggerTypeInfo, fmt.Sprintf("File hash-map created in %.2f seconds.", elapsed.Seconds()))
+
+	var processedFiles int64
+
+	stopSpinner := make(chan bool)
+	go spinner(stopSpinner, &processedFiles, totalFiles)
+
+	done := make(chan struct{})
+
+	go creator(
+		sourcePath,
+		fileQueue,
+		warnQueue,
+		errorQueue,
+		*geoLocation,
+		*moveUnknown,
+		fileTypes,
+		*organisePhotos,
+		*organiseVideos,
+		*duplicateStrategy,
+		fileHashMap,
+		hashCache,
+	)
+
+	go consumer(
+		destinationPath,
+		fileQueue,
+		errorQueue,
+		*geoLocation,
+		*format,
+		*verbose,
+		totalFiles,
+		*duplicateStrategy,
+		&processedFiles,
+		done,
+	)
+
+	<-done
+	stopSpinner <- true
+
+	logger(LoggerTypeInfo, strconv.Itoa(totalFiles)+" files processed.")
+
+	elapsed = time.Since(start)
+	logger(LoggerTypeInfo, fmt.Sprintf("Processing completed in %.2f seconds.", elapsed.Seconds()))
+}
+
+func spinner(stopSpinner chan bool, processedFiles *int64, totalFiles int) {
+	spinChars := `-\|/`
+	i := 0
+	for {
+		select {
+		case <-stopSpinner:
+			fmt.Printf("\r%s\r", strings.Repeat(" ", 80))
+			return
+		default:
+			processed := atomic.LoadInt64(processedFiles)
+			percentage := float64(processed) / float64(totalFiles) * 100
+			fmt.Printf("\rProcessing %c | Processed: %d/%d (%.2f%%)", spinChars[i], processed, totalFiles, percentage)
+			i = (i + 1) % len(spinChars)
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+}
+
+func displayHelp() {
+	flag.PrintDefaults()
+}
+
+func arrayContains(stringArray []string, stringCandidate string) bool {
+	for _, string := range stringArray {
+		if string == stringCandidate {
+			return true
+		}
+	}
+
+	return false
+}
+
+func countFiles(rootPath string, fileTypes []string, organisePhotos bool, organiseVideos bool) int {
+	count := 0
+
+	filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if !info.IsDir() {
+			ext := strings.ToLower(filepath.Ext(path))
+
+			if (organisePhotos && isPhoto(ext) || organiseVideos && isVideo(ext)) &&
+				(len(fileTypes) == 0 || arrayContains(fileTypes, ext)) {
+				count++
+			}
+		}
+
+		return nil
+	})
+
+	return count
+}
 
 func init() {
 	inputPath = flag.String("input", "", "Path to source file or directory")
@@ -95,25 +237,6 @@ func flagProcessor() []string {
 	return fileTypes
 }
 
-func startLoggerHandlers(wg *sync.WaitGroup, infoQueue, warnQueue chan string, errorQueue chan error) {
-	wg.Add(3)
-
-	go func() {
-		defer wg.Done()
-		infoHandler(infoQueue)
-	}()
-
-	go func() {
-		defer wg.Done()
-		warnHandler(warnQueue)
-	}()
-
-	go func() {
-		defer wg.Done()
-		errorHandler(errorQueue)
-	}()
-}
-
 func validatePaths(sourcePath, destinationPath string) {
 	if sourcePath == "" || destinationPath == "" {
 		logger(LoggerTypeFatal, "input and output paths must be supplied")
@@ -127,128 +250,4 @@ func validatePaths(sourcePath, destinationPath string) {
 	} else if sourceDrive != destinationDrive {
 		logger(LoggerTypeFatal, fmt.Sprintf("input and output paths must be on the same drive: source drive (%s), destination drive (%s)", sourceDrive, destinationDrive))
 	}
-}
-
-func main() {
-	flag.Parse()
-	fileTypes := flagProcessor()
-
-	sourcePath := filepath.Clean(*inputPath)
-	destinationPath := filepath.Clean(*outputPath)
-	validatePaths(sourcePath, destinationPath)
-
-	fileQueue := make(chan FileInfo, 100)
-	infoQueue := make(chan string, 50)
-	warnQueue := make(chan string, 10)
-	errorQueue := make(chan error, 50)
-
-	var wg sync.WaitGroup
-
-	startLoggerHandlers(&wg, infoQueue, warnQueue, errorQueue)
-
-	logger(LoggerTypeInfo, "Counting files to move...")
-	totalFiles := countFiles(sourcePath, fileTypes, *organisePhotos, *organiseVideos)
-	logger(LoggerTypeInfo, fmt.Sprintf("%d files to be proceeded.", totalFiles))
-
-	if totalFiles == 0 {
-		logger(LoggerTypeInfo, "No files to move.")
-		return
-	}
-
-	hashCache := &sync.Map{}
-
-	logger(LoggerTypeInfo, "Creating file hash map...")
-	fileHashMap, err := hash.HashImagesInPath(destinationPath, hashCache)
-	if err != nil {
-		logger(LoggerTypeInfo, "Failed to create file has map.")
-		logger(LoggerTypeFatal, err.Error())
-	}
-
-	done := make(chan struct{})
-
-	go creator(
-		sourcePath,
-		fileQueue,
-		warnQueue,
-		errorQueue,
-		*geoLocation,
-		*moveUnknown,
-		fileTypes,
-		*organisePhotos,
-		*organiseVideos,
-		*duplicateStrategy,
-		fileHashMap,
-		hashCache,
-	)
-
-	go consumer(
-		destinationPath,
-		fileQueue,
-		errorQueue,
-		*geoLocation,
-		*format,
-		*verbose,
-		totalFiles,
-		*duplicateStrategy,
-		done,
-	)
-
-	<-done
-
-	logger(LoggerTypeInfo, strconv.Itoa(totalFiles)+" files processed.")
-}
-
-func errorHandler(errorQueue chan error) {
-	for err := range errorQueue {
-		logger(LoggerTypeError, fmt.Sprintf("%v\n", err))
-	}
-}
-
-func warnHandler(warnQueue chan string) {
-	for warning := range warnQueue {
-		logger(LoggerTypeWarning, fmt.Sprintf("%v\n", warning))
-	}
-}
-
-func infoHandler(infoQueue chan string) {
-	for message := range infoQueue {
-		logger(LoggerTypeInfo, fmt.Sprintf("%v\n", message))
-	}
-}
-
-func displayHelp() {
-	flag.PrintDefaults()
-}
-
-func arrayContains(stringArray []string, stringCandidate string) bool {
-	for _, string := range stringArray {
-		if string == stringCandidate {
-			return true
-		}
-	}
-
-	return false
-}
-
-func countFiles(rootPath string, fileTypes []string, organisePhotos bool, organiseVideos bool) int {
-	count := 0
-
-	filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if !info.IsDir() {
-			ext := strings.ToLower(filepath.Ext(path))
-
-			if (organisePhotos && isPhoto(ext) || organiseVideos && isVideo(ext)) &&
-				(len(fileTypes) == 0 || arrayContains(fileTypes, ext)) {
-				count++
-			}
-		}
-
-		return nil
-	})
-
-	return count
 }
