@@ -130,7 +130,6 @@ func HashImagesInPath(path string, hashCache *sync.Map, hashedFiles *int64) (*sy
 					hashStr := hex.EncodeToString(hashValue)
 					fileHashMap.Store(hashStr, true)
 
-					// Increment the hashed files counter
 					atomic.AddInt64(hashedFiles, 1)
 				}
 			}

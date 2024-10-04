@@ -37,7 +37,7 @@ func IsDuplicate(
 		return false, err
 	}
 
-	hashStr := string(hashValue) // Convert []byte to string
+	hashStr := string(hashValue)
 
 	_, exists := fileHashMap.Load(hashStr)
 	if exists {

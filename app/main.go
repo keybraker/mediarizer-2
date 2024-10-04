@@ -64,22 +64,20 @@ func main() {
 
 	hashCache := &sync.Map{}
 
-	// Start a spinner for hash-map creation
 	logger(LoggerTypeInfo, "Creating file hash-map on the destination path.")
 	totalFilesInDestination := countFiles(destinationPath, fileTypes, *organisePhotos, *organiseVideos)
 	var hashedFiles int64
 	stopHashSpinner := make(chan bool)
 	go spinner(stopHashSpinner, "Hashing:", &hashedFiles, totalFilesInDestination)
 
-	// Create the hash map with a progress counter
 	fileHashMap, err := hash.HashImagesInPath(destinationPath, hashCache, &hashedFiles)
 	if err != nil {
-		stopHashSpinner <- true // Stop the spinner in case of error
+		stopHashSpinner <- true
 		logger(LoggerTypeInfo, "Failed to create file hash map.")
 		logger(LoggerTypeFatal, err.Error())
 	}
 
-	stopHashSpinner <- true // Stop the spinner after hash-map creation is done
+	stopHashSpinner <- true
 	elapsed := time.Since(start)
 	logger(LoggerTypeInfo, fmt.Sprintf("File hash-map created in %.2f seconds.", elapsed.Seconds()))
 
@@ -120,10 +118,10 @@ func main() {
 	<-done
 	stopSpinner <- true
 
-	logger(LoggerTypeInfo, strconv.Itoa(totalFilesToMove)+" files processed.")
-
 	elapsed = time.Since(start)
 	elapsedString := formatElapsedTime(elapsed)
+
+	logger(LoggerTypeInfo, strconv.Itoa(totalFilesToMove)+" files processed.")
 	logger(LoggerTypeInfo, fmt.Sprintf("Processing completed in %s.", elapsedString))
 }
 
