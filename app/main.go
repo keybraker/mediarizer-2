@@ -36,6 +36,12 @@ var (
 )
 
 func main() {
+	l0 := "   __  ___       ___          _                ___ "
+	l1 := "  /  |/  /__ ___/ (_)__ _____(_)__ ___ ____   |_  |"
+	l2 := " / /|_/ / -_) _  / / _ `/ __/ /_ // -_) __/  / __/ "
+	l3 := "/_/  /_/\\__/\\_,_/_/\\_,_/_/ /_//__/\\__/_/    /____/ (v1.0.1)"
+	fmt.Println("\n" + l0 + "\n" + l1 + "\n" + l2 + "\n" + l3 + "\n\n\t\t\t\tby Keybraker\n")
+
 	start := time.Now()
 
 	flag.Parse()
@@ -66,6 +72,7 @@ func main() {
 
 	logger(LoggerTypeInfo, "Creating file hash-map on the destination path.")
 	totalFilesInDestination := countFiles(destinationPath, fileTypes, *organisePhotos, *organiseVideos)
+
 	var hashedFiles int64
 	stopHashSpinner := make(chan bool)
 	go spinner(stopHashSpinner, "Hashing:", &hashedFiles, totalFilesInDestination)
