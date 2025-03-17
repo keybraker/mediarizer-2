@@ -3,6 +3,7 @@ package hash
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -17,14 +18,26 @@ import (
 )
 
 type FileMeta struct {
-	Size    int64
-	ModTime time.Time
+	Size    int64     `json:"size"`
+	ModTime time.Time `json:"mod_time"`
 }
 
 type CachedFile struct {
 	FileMeta
-	Hash []byte
+	Hash []byte `json:"hash"`
 }
+
+type hashCacheFile struct {
+	Files map[string]serializedCachedFile `json:"files"`
+}
+
+type serializedCachedFile struct {
+	Size    int64     `json:"size"`
+	ModTime time.Time `json:"mod_time"`
+	Hash    string    `json:"hash"` // Hex string representation
+}
+
+const DefaultCacheFilePath = "hash_cache.json"
 
 type readerAtWrapper struct {
 	readerAt io.ReaderAt
@@ -106,7 +119,93 @@ func GetFileHash(filePath string, hashCache *sync.Map) ([]byte, error) {
 	return hashValue, nil
 }
 
-// hashImagesInPath hashes all images in the given path and updates the fileHashMap.
+// LoadHashCache loads the hash cache from the specified JSON file.
+func LoadHashCache(cachePath string) (*sync.Map, error) {
+	hashCache := &sync.Map{}
+
+	if _, err := os.Stat(cachePath); os.IsNotExist(err) {
+		return hashCache, nil
+	}
+
+	data, err := os.ReadFile(cachePath)
+	if err != nil {
+		return hashCache, fmt.Errorf("failed to read hash cache file: %v", err)
+	}
+
+	var cacheFile hashCacheFile
+	err = json.Unmarshal(data, &cacheFile)
+	if err != nil {
+		return hashCache, fmt.Errorf("failed to unmarshal hash cache: %v", err)
+	}
+
+	for filePath, serialized := range cacheFile.Files {
+		hashBytes, err := hex.DecodeString(serialized.Hash)
+		if err != nil {
+			continue // Skip invalid entries
+		}
+
+		cachedFile := CachedFile{
+			FileMeta: FileMeta{
+				Size:    serialized.Size,
+				ModTime: serialized.ModTime,
+			},
+			Hash: hashBytes,
+		}
+
+		hashCache.Store(filePath, cachedFile)
+	}
+
+	return hashCache, nil
+}
+
+// SaveHashCache saves the hash cache to a JSON file.
+func SaveHashCache(hashCache *sync.Map, cachePath string) error {
+	cacheFile := hashCacheFile{
+		Files: make(map[string]serializedCachedFile),
+	}
+
+	hashCache.Range(func(key, value interface{}) bool {
+		filePath, ok := key.(string)
+		if !ok {
+			return true
+		}
+
+		cachedFile, ok := value.(CachedFile)
+		if !ok {
+			return true
+		}
+
+		cacheFile.Files[filePath] = serializedCachedFile{
+			Size:    cachedFile.Size,
+			ModTime: cachedFile.ModTime,
+			Hash:    hex.EncodeToString(cachedFile.Hash),
+		}
+		return true
+	})
+
+	data, err := json.MarshalIndent(cacheFile, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal hash cache: %v", err)
+	}
+
+	err = os.WriteFile(cachePath, data, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write hash cache to file: %v", err)
+	}
+
+	return nil
+}
+
+// InitHashCache initializes the hash cache, loading from file if it exists.
+func InitHashCache(cachePath string) (*sync.Map, error) {
+	if cachePath == "" {
+		cachePath = DefaultCacheFilePath
+	}
+
+	return LoadHashCache(cachePath)
+}
+
+// HashImagesInPath hashes all images in the given path and updates the fileHashMap.
 func HashImagesInPath(path string, hashCache *sync.Map, hashedFiles *int64) (*sync.Map, error) {
 	fileHashMap := &sync.Map{}
 	fileChan := make(chan string)
@@ -165,6 +264,10 @@ func HashImagesInPath(path string, hashCache *sync.Map, hashedFiles *int64) (*sy
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	if err := SaveHashCache(hashCache, DefaultCacheFilePath); err != nil {
+		fmt.Printf("Warning: Failed to save hash cache: %v\n", err)
 	}
 
 	return fileHashMap, nil

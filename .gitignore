@@ -17,3 +17,6 @@ mediarizer2
 mediarizer.exe
 mediarizer2.exe
 .vscode
+
+# hash cache
+hash_cache.json

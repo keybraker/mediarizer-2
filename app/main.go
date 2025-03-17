@@ -39,7 +39,7 @@ func main() {
 	l0 := "   __  ___       ___          _                ___ "
 	l1 := "  /  |/  /__ ___/ (_)__ _____(_)__ ___ ____   |_  |"
 	l2 := " / /|_/ / -_) _  / / _ `/ __/ /_ // -_) __/  / __/ "
-	l3 := "/_/  /_/\\__/\\_,_/_/\\_,_/_/ /_//__/\\__/_/    /____/ (v1.0.1)"
+	l3 := "/_/  /_/\\__/\\_,_/_/\\_,_/_/ /_//__/\\__/_/    /____/ (v1.0.2)"
 	fmt.Println("\n" + l0 + "\n" + l1 + "\n" + l2 + "\n" + l3 + "\n\n\t\t\t\tby Keybraker\n")
 
 	start := time.Now()
@@ -68,7 +68,13 @@ func main() {
 		logger(LoggerTypeInfo, fmt.Sprintf("%d files to be processed.", totalFilesToMove))
 	}
 
-	hashCache := &sync.Map{}
+	hashCache, err := hash.InitHashCache("")
+	if err != nil {
+		logger(LoggerTypeWarning, fmt.Sprintf("Failed to load hash cache: %v. Using empty cache.", err))
+		hashCache = &sync.Map{}
+	} else {
+		logger(LoggerTypeInfo, "Hash cache loaded successfully.")
+	}
 
 	logger(LoggerTypeInfo, "Creating file hash-map on the destination path.")
 	totalFilesInDestination := countFiles(destinationPath, fileTypes, *organisePhotos, *organiseVideos)
@@ -124,6 +130,13 @@ func main() {
 
 	<-done
 	stopSpinner <- true
+
+	// Save the hash cache to disk before exiting
+	if err := hash.SaveHashCache(hashCache, hash.DefaultCacheFilePath); err != nil {
+		logger(LoggerTypeWarning, fmt.Sprintf("Failed to save hash cache: %v", err))
+	} else {
+		logger(LoggerTypeInfo, "Hash cache saved successfully.")
+	}
 
 	elapsed = time.Since(start)
 	elapsedString := formatElapsedTime(elapsed)
@@ -229,7 +242,7 @@ func flagProcessor() []string {
 	}
 
 	if *showVersion {
-		fmt.Println("v1.0.0")
+		fmt.Println("v1.0.2")
 		os.Exit(0)
 	}
 
