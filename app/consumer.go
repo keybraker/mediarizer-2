@@ -8,8 +8,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/keybraker/mediarizer-2/duplicate"
 )
 
 func consumer(
@@ -19,7 +17,6 @@ func consumer(
 	geoLocation bool,
 	format string,
 	verbose bool,
-	duplicateStrategy string,
 	processedFiles *int64,
 	done chan<- struct{}) {
 
@@ -38,7 +35,6 @@ func consumer(
 					geoLocation,
 					format,
 					verbose,
-					duplicateStrategy,
 				)
 
 				atomic.AddInt64(processedFiles, 1)
@@ -57,7 +53,6 @@ func processFileInfo(
 	geoLocation bool,
 	format string,
 	verbose bool,
-	duplicateStrategy string,
 ) {
 	var generatedPath string
 	var err error
@@ -68,21 +63,13 @@ func processFileInfo(
 		return
 	}
 
-	if fileInfo.isDuplicate {
-		generatedPath, err = duplicate.CreateDuplicateFolder(generatedPath, "DUPLICATE")
+	// Check if file already exists and add numeric suffix if needed
+	_, err = os.Stat(generatedPath)
+	if !os.IsNotExist(err) {
+		generatedPath, err = generateUniquePathName(generatedPath)
 		if err != nil {
 			errorQueue <- err
 			return
-		}
-		generatedPath = filepath.Join(generatedPath, filepath.Base(fileInfo.Path))
-	} else {
-		_, err = os.Stat(generatedPath)
-		if !os.IsNotExist(err) {
-			generatedPath, err = generateUniquePathName(generatedPath)
-			if err != nil {
-				errorQueue <- err
-				return
-			}
 		}
 	}
 
@@ -90,22 +77,20 @@ func processFileInfo(
 		fileInfo.Path,
 		generatedPath,
 		verbose,
-		fileInfo.isDuplicate,
-		duplicateStrategy,
 	)
 	if err != nil {
 		errorQueue <- fmt.Errorf("failed to move %s to %s: %v", fileInfo.Path, generatedPath, err)
 	}
 }
 
-func moveFile(sourcePath, destinationPath string, verbose bool, isDuplicate bool, duplicateStrategy string) error {
+func moveFile(sourcePath, destinationPath string, verbose bool) error {
 	destPath := filepath.Dir(destinationPath)
 	if err := os.MkdirAll(destPath, os.ModePerm); err != nil {
 		return fmt.Errorf("failed to create destination directory %s: %v", destPath, err)
 	}
 
 	if verbose {
-		moveActionLog, err := logMoveAction(sourcePath, destPath, isDuplicate, duplicateStrategy)
+		moveActionLog, err := logMoveAction(sourcePath, destPath)
 		if err != nil {
 			return err
 		}

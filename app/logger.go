@@ -52,30 +52,11 @@ func infoHandler(infoQueue chan string) {
 	}
 }
 
-func logMoveAction(sourcePath, destinationDirectory string, isDuplicate bool, duplicateStrategy string) (string, error) {
+func logMoveAction(sourcePath, destinationDirectory string) (string, error) {
 	colorCode := "\033[32m"
-	actionName := "Moved (original)"
+	actionName := "Moved"
 
 	fileName := filepath.Base(sourcePath)
-
-	if isDuplicate {
-		switch duplicateStrategy {
-		case "move":
-			colorCode = "\033[33m"
-			actionName = "Moved (duplicate)"
-		case "skip":
-			colorCode = "\033[34m"
-			actionName = "Skipped (duplicate)"
-			return fmt.Sprintf("\033[1m%s%s\033[0m %s\n", colorCode, actionName, fileName), nil
-		case "delete":
-			colorCode = "\033[31m"
-			actionName = "Deleted (duplicate)"
-			return fmt.Sprintf("\033[1m%s%s\033[0m %s\n", colorCode, actionName, fileName), nil
-		default:
-			colorCode = "\033[35m"
-			actionName = "Unknown Operation"
-		}
-	}
 
 	const maxPathLength = 90
 	var source, destination string

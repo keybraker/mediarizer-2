@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/keybraker/mediarizer-2/duplicate"
 	"github.com/keybraker/mediarizer-2/hash"
 )
 
@@ -90,35 +91,14 @@ func main() {
 	executionSteps = append(executionSteps, ExecutionStep{Name: "Load hash cache", Duration: stepDuration, Order: 2})
 
 	stepStart = time.Now()
-	logger(LoggerTypeInfo, "Creating file hash-map on the destination path.")
-	totalFilesInDestination := countFiles(destinationPath, fileTypes, *organisePhotos, *organiseVideos)
-	stepDuration = time.Since(stepStart)
-	executionSteps = append(executionSteps, ExecutionStep{Name: "Count destination files", Duration: stepDuration, Order: 3})
-
-	stepStart = time.Now()
-	var hashedFiles int64
-	stopHashSpinner := make(chan bool)
-	go spinner(stopHashSpinner, "Hashing:", &hashedFiles, totalFilesInDestination)
-
-	fileHashMap, err := hash.HashImagesInPath(destinationPath, hashCache, &hashedFiles)
-	if err != nil {
-		stopHashSpinner <- true
-		logger(LoggerTypeInfo, "Failed to create file hash map.")
-		logger(LoggerTypeFatal, err.Error())
-	}
-
-	stopHashSpinner <- true
-	stepDuration = time.Since(stepStart)
-	executionSteps = append(executionSteps, ExecutionStep{Name: "Hash destination files", Duration: stepDuration, Order: 4})
-	logger(LoggerTypeInfo, fmt.Sprintf("File hash-map created in %s.", formatElapsedTime(stepDuration)))
-
-	stepStart = time.Now()
 	var processedFiles int64
 
 	stopSpinner := make(chan bool)
 	go spinner(stopSpinner, "Processing:", &processedFiles, totalFilesToMove)
 
 	done := make(chan struct{})
+
+	fileHashMap := &sync.Map{}
 
 	go creator(
 		sourcePath,
@@ -130,7 +110,6 @@ func main() {
 		fileTypes,
 		*organisePhotos,
 		*organiseVideos,
-		*duplicateStrategy,
 		fileHashMap,
 		hashCache,
 	)
@@ -142,7 +121,6 @@ func main() {
 		*geoLocation,
 		*format,
 		*verbose,
-		*duplicateStrategy,
 		&processedFiles,
 		done,
 	)
@@ -150,7 +128,30 @@ func main() {
 	<-done
 	stopSpinner <- true
 	stepDuration = time.Since(stepStart)
-	executionSteps = append(executionSteps, ExecutionStep{Name: "Process and move files", Duration: stepDuration, Order: 5})
+	executionSteps = append(executionSteps, ExecutionStep{Name: "Process and move files", Duration: stepDuration, Order: 4})
+
+	stepStart = time.Now()
+	logger(LoggerTypeInfo, "Organizing duplicates in destination path.")
+
+	var processedDuplicateFiles int64
+	stopDuplicateSpinner := make(chan bool)
+	spinnerDone := make(chan bool)
+	go func() {
+		spinner(stopDuplicateSpinner, "Organizing:", &processedDuplicateFiles, 0)
+		spinnerDone <- true
+	}()
+
+	err = organizeDuplicatesInDestination(destinationPath, fileTypes, *organisePhotos, *organiseVideos, *duplicateStrategy, hashCache, &processedDuplicateFiles)
+
+	stopDuplicateSpinner <- true
+	<-spinnerDone // Wait for spinner to finish clearing
+	if err != nil {
+		logger(LoggerTypeWarning, fmt.Sprintf("Failed to organize duplicates: %v", err))
+	} else {
+		logger(LoggerTypeInfo, "Duplicates organized successfully.")
+	}
+	stepDuration = time.Since(stepStart)
+	executionSteps = append(executionSteps, ExecutionStep{Name: "Organize duplicates", Duration: stepDuration, Order: 5})
 
 	stepStart = time.Now()
 	if err := hash.SaveHashCache(hashCache, hash.DefaultCacheFilePath); err != nil {
@@ -163,6 +164,93 @@ func main() {
 
 	totalElapsed := time.Since(startTotal)
 	displayExecutionSummary(totalElapsed, executionSteps, totalFilesToMove)
+}
+
+// organizeDuplicatesInDestination scans the destination directory for duplicate files
+// and organizes them into DUPLICATE folders according to the duplicateStrategy
+func organizeDuplicatesInDestination(destinationPath string, fileTypes []string, organisePhotos bool, organiseVideos bool, duplicateStrategy string, hashCache *sync.Map, processedDuplicateFiles *int64) error {
+	fileHashMap := &sync.Map{}
+	var hashedFiles int64
+
+	var err error
+	fileHashMap, err = hash.HashImagesInPath(destinationPath, hashCache, &hashedFiles)
+	if err != nil {
+		return fmt.Errorf("failed to hash files in destination: %v", err)
+	}
+
+	// Scan for duplicates (spinner shows progress, so skip logging here)
+	err = filepath.Walk(destinationPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		ext := strings.ToLower(filepath.Ext(path))
+
+		if !((organisePhotos && isPhoto(ext)) || (organiseVideos && isVideo(ext))) {
+			return nil
+		}
+
+		if len(fileTypes) > 0 && !arrayContains(fileTypes, ext) {
+			return nil
+		}
+
+		// Skip files already in DUPLICATE folders
+		if strings.Contains(path, "DUPLICATE") {
+			return nil
+		}
+
+		atomic.AddInt64(processedDuplicateFiles, 1)
+
+		isDuplicate, err := duplicate.IsDuplicate(path, duplicateStrategy, fileHashMap, hashCache)
+		if err != nil {
+			return err
+		}
+
+		if isDuplicate {
+			switch duplicateStrategy {
+			case "skip":
+				logger(LoggerTypeVerbose, fmt.Sprintf("Skipped duplicate: %s", filepath.Base(path)))
+				return nil
+			case "delete":
+				if err := os.Remove(path); err != nil {
+					return fmt.Errorf("failed to delete duplicate file %s: %v", path, err)
+				}
+				logger(LoggerTypeVerbose, fmt.Sprintf("Deleted duplicate: %s", filepath.Base(path)))
+				return nil
+			case "move":
+				dir := filepath.Dir(path)
+				fileName := filepath.Base(path)
+				duplicateFolderPath, err := duplicate.CreateDuplicateFolder(filepath.Join(dir, fileName), "DUPLICATE")
+				if err != nil {
+					return err
+				}
+
+				newPath := filepath.Join(duplicateFolderPath, fileName)
+
+				_, err = os.Stat(newPath)
+				if !os.IsNotExist(err) {
+					newPath, err = generateUniquePathName(newPath)
+					if err != nil {
+						return err
+					}
+				}
+
+				if err := os.Rename(path, newPath); err != nil {
+					return fmt.Errorf("failed to move duplicate file %s to %s: %v", path, newPath, err)
+				}
+
+				logger(LoggerTypeVerbose, fmt.Sprintf("Moved duplicate: %s -> %s", fileName, newPath))
+			}
+		}
+
+		return nil
+	})
+
+	return err
 }
 
 func formatElapsedTime(elapsed time.Duration) string {
@@ -209,8 +297,14 @@ func spinner(stopSpinner chan bool, verb string, processedFiles *int64, totalFil
 			return
 		default:
 			processed := atomic.LoadInt64(processedFiles)
-			percentage := float64(processed) / float64(totalFiles) * 100
-			fmt.Printf("\r%c | %s: %d/%d (%.2f%%)", spinChars[i], verb, processed, totalFiles, percentage)
+			var output string
+			if totalFiles > 0 {
+				percentage := float64(processed) / float64(totalFiles) * 100
+				output = fmt.Sprintf("\r%c | %s: %d/%d (%.2f%%)", spinChars[i], verb, processed, totalFiles, percentage)
+			} else {
+				output = fmt.Sprintf("\r%c | %s: %d files", spinChars[i], verb, processed)
+			}
+			fmt.Print(output)
 			i = (i + 1) % len(spinChars)
 			time.Sleep(100 * time.Millisecond)
 		}

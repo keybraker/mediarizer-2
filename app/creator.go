@@ -10,8 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/keybraker/mediarizer-2/duplicate"
-
 	"github.com/rwcarlsen/goexif/exif"
 )
 
@@ -27,7 +25,6 @@ func creator(
 	fileTypesToInclude []string,
 	organisePhotos bool,
 	organiseVideos bool,
-	duplicateStrategy string,
 	fileHashMap *sync.Map,
 	hashCache *sync.Map,
 ) {
@@ -52,7 +49,6 @@ func creator(
 					fileTypesToInclude,
 					organisePhotos,
 					organiseVideos,
-					duplicateStrategy,
 					fileHashMap,
 					hashCache,
 				)
@@ -93,7 +89,6 @@ func processFile(
 	fileTypesToInclude []string,
 	organisePhotos bool,
 	organiseVideos bool,
-	duplicateStrategy string,
 	fileHashMap *sync.Map,
 	hashCache *sync.Map,
 ) {
@@ -110,28 +105,6 @@ func processFile(
 		return
 	}
 
-	isDuplicate, err := duplicate.IsDuplicate(path, duplicateStrategy, fileHashMap, hashCache)
-	if err != nil {
-		errorQueue <- err
-		return
-	}
-
-	if isDuplicate {
-		switch duplicateStrategy {
-		case "skip":
-			fmt.Printf("Skipped duplicate file: %v\n", path)
-			logMoveAction(path, "", true, duplicateStrategy)
-			return
-		case "delete":
-			if err := os.Remove(path); err != nil {
-				errorQueue <- fmt.Errorf("failed to delete duplicate file: %v", err)
-			} else {
-				logMoveAction(path, "", true, duplicateStrategy)
-			}
-			return
-		}
-	}
-
 	if geoLocation {
 		country, err := getCountry(path)
 		if err != nil {
@@ -141,7 +114,7 @@ func processFile(
 			warnQueue <- fmt.Sprintf("no country found for file: %v", path)
 		}
 
-		fileQueue <- FileInfo{Path: path, FileType: fileType, isDuplicate: isDuplicate, Country: country}
+		fileQueue <- FileInfo{Path: path, FileType: fileType, Country: country}
 	} else {
 		createdDate, hasCreationDate, err := getCreatedTime(path)
 		if err != nil {
@@ -152,7 +125,6 @@ func processFile(
 		fileQueue <- FileInfo{
 			Path:            path,
 			FileType:        fileType,
-			isDuplicate:     isDuplicate,
 			Created:         createdDate,
 			HasCreationDate: hasCreationDate,
 		}
