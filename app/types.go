@@ -34,6 +34,8 @@ const (
 	JPEG
 	PNG
 	GIF
+	DNG
+	NEF
 )
 
 type VideoType int

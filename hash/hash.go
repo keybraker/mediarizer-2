@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -27,8 +28,14 @@ type CachedFile struct {
 	Hash []byte `json:"hash"`
 }
 
+type DirectoryHash struct {
+	LastScanned time.Time `json:"last_scanned"`
+	FileCount   int       `json:"file_count"`
+}
+
 type hashCacheFile struct {
-	Files map[string]serializedCachedFile `json:"files"`
+	Files       map[string]serializedCachedFile `json:"files"`
+	Directories map[string]DirectoryHash        `json:"directories"`
 }
 
 type serializedCachedFile struct {
@@ -54,12 +61,12 @@ func (r *readerAtWrapper) Read(p []byte) (n int, err error) {
 	return n, err
 }
 
-// isImageFile checks if the file is an image based on its extension.
 func isImageFile(filePath string) bool {
 	lowerFilePath := strings.ToLower(filePath)
 	return strings.HasSuffix(lowerFilePath, ".jpg") || strings.HasSuffix(lowerFilePath, ".jpeg") ||
 		strings.HasSuffix(lowerFilePath, ".png") || strings.HasSuffix(lowerFilePath, ".gif") ||
-		strings.HasSuffix(lowerFilePath, ".bmp") || strings.HasSuffix(lowerFilePath, ".tiff")
+		strings.HasSuffix(lowerFilePath, ".bmp") || strings.HasSuffix(lowerFilePath, ".tiff") ||
+		strings.HasSuffix(lowerFilePath, ".dng") || strings.HasSuffix(lowerFilePath, ".nef")
 }
 
 // calculateFileHash calculates the SHA-256 hash of the file at the given filePath.
@@ -155,16 +162,29 @@ func LoadHashCache(cachePath string) (*sync.Map, error) {
 		hashCache.Store(filePath, cachedFile)
 	}
 
+	for dirPath, dirHash := range cacheFile.Directories {
+		hashCache.Store("dir:"+dirPath, dirHash)
+	}
+
 	return hashCache, nil
 }
 
 // SaveHashCache saves the hash cache to a JSON file.
 func SaveHashCache(hashCache *sync.Map, cachePath string) error {
 	cacheFile := hashCacheFile{
-		Files: make(map[string]serializedCachedFile),
+		Files:       make(map[string]serializedCachedFile),
+		Directories: make(map[string]DirectoryHash),
 	}
 
 	hashCache.Range(func(key, value interface{}) bool {
+		if strKey, ok := key.(string); ok && strings.HasPrefix(strKey, "dir:") {
+			if dirHash, ok := value.(DirectoryHash); ok {
+				dirPath := strings.TrimPrefix(strKey, "dir:")
+				cacheFile.Directories[dirPath] = dirHash
+				return true
+			}
+		}
+
 		filePath, ok := key.(string)
 		if !ok {
 			return true
@@ -205,12 +225,52 @@ func InitHashCache(cachePath string) (*sync.Map, error) {
 	return LoadHashCache(cachePath)
 }
 
+// isSkippableDirectory checks if a directory should be skipped during hashing
+// to improve performance on large directory trees.
+func isSkippableDirectory(dirName string) bool {
+	lowerDirName := strings.ToLower(dirName)
+	skippableDirs := map[string]bool{
+		"videos":       true,
+		"unknown":      true,
+		".git":         true,
+		".cache":       true,
+		"node_modules": true,
+	}
+	return skippableDirs[lowerDirName]
+}
+
+// isDirectoryAlreadyHashed checks if a directory was already hashed and has no new files.
+// Returns true if the directory can be skipped due to incremental hashing.
+func isDirectoryAlreadyHashed(dirPath string, hashCache *sync.Map) bool {
+	if cached, found := hashCache.Load("dir:" + dirPath); found {
+		if dirHash, ok := cached.(DirectoryHash); ok {
+			if _, err := os.Stat(dirPath); err == nil {
+				if time.Since(dirHash.LastScanned) < 24*time.Hour {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// markDirectoryAsHashed records that a directory has been hashed.
+func markDirectoryAsHashed(dirPath string, fileCount int, hashCache *sync.Map) {
+	dirHash := DirectoryHash{
+		LastScanned: time.Now(),
+		FileCount:   fileCount,
+	}
+	hashCache.Store("dir:"+dirPath, dirHash)
+}
+
 // HashImagesInPath hashes all images in the given path and updates the fileHashMap.
 func HashImagesInPath(path string, hashCache *sync.Map, hashedFiles *int64) (*sync.Map, error) {
 	fileHashMap := &sync.Map{}
-	fileChan := make(chan string)
+	fileChan := make(chan string, 500)
 	errChan := make(chan error)
 	var wg sync.WaitGroup
+	dirFileCount := make(map[string]int)
+	var dirMutex sync.Mutex
 
 	numWorkers := runtime.NumCPU() * 4
 
@@ -237,15 +297,33 @@ func HashImagesInPath(path string, hashCache *sync.Map, hashedFiles *int64) (*sy
 
 	go func() {
 		defer close(fileChan)
-		err := filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
+		err := filepath.WalkDir(path, func(dirPath string, d fs.DirEntry, err error) error {
 			if err != nil {
-				errChan <- fmt.Errorf("failed to walk path %s: %v", filePath, err)
+				errChan <- fmt.Errorf("failed to walk path %s: %v", dirPath, err)
 				return err
 			}
 
-			if !info.IsDir() {
-				fileChan <- filePath
+			if d.IsDir() {
+				if isSkippableDirectory(d.Name()) {
+					return filepath.SkipDir
+				}
+
+				if isDirectoryAlreadyHashed(dirPath, hashCache) {
+					return filepath.SkipDir
+				}
+				return nil
 			}
+
+			if !d.Type().IsRegular() {
+				return nil
+			}
+
+			fileChan <- dirPath
+
+			currentDir := filepath.Dir(dirPath)
+			dirMutex.Lock()
+			dirFileCount[currentDir]++
+			dirMutex.Unlock()
 
 			return nil
 		})
@@ -265,6 +343,12 @@ func HashImagesInPath(path string, hashCache *sync.Map, hashedFiles *int64) (*sy
 			return nil, err
 		}
 	}
+
+	dirMutex.Lock()
+	for dirPath, fileCount := range dirFileCount {
+		markDirectoryAsHashed(dirPath, fileCount, hashCache)
+	}
+	dirMutex.Unlock()
 
 	if err := SaveHashCache(hashCache, DefaultCacheFilePath); err != nil {
 		fmt.Printf("Warning: Failed to save hash cache: %v\n", err)

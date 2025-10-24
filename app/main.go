@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -35,6 +34,13 @@ var (
 	ErrorLogger   *log.Logger
 )
 
+// ExecutionStep represents a step in the execution process with timing information
+type ExecutionStep struct {
+	Name     string
+	Duration time.Duration
+	Order    int
+}
+
 func main() {
 	l0 := "   __  ___       ___          _                ___ "
 	l1 := "  /  |/  /__ ___/ (_)__ _____(_)__ ___ ____   |_  |"
@@ -42,7 +48,8 @@ func main() {
 	l3 := "/_/  /_/\\__/\\_,_/_/\\_,_/_/ /_//__/\\__/_/    /____/ (v1.0.2)"
 	fmt.Println("\n" + l0 + "\n" + l1 + "\n" + l2 + "\n" + l3 + "\n\n\t\t\t\tby Keybraker\n")
 
-	start := time.Now()
+	startTotal := time.Now()
+	executionSteps := []ExecutionStep{}
 
 	flag.Parse()
 	fileTypes := flagProcessor()
@@ -58,8 +65,11 @@ func main() {
 
 	startLoggerHandlers(&wg, infoQueue, warnQueue, errorQueue)
 
+	stepStart := time.Now()
 	logger(LoggerTypeInfo, "Counting files in path.")
 	totalFilesToMove := countFiles(sourcePath, fileTypes, *organisePhotos, *organiseVideos)
+	stepDuration := time.Since(stepStart)
+	executionSteps = append(executionSteps, ExecutionStep{Name: "Count source files", Duration: stepDuration, Order: 1})
 
 	if totalFilesToMove == 0 {
 		logger(LoggerTypeInfo, "No files in path, exiting.")
@@ -68,6 +78,7 @@ func main() {
 		logger(LoggerTypeInfo, fmt.Sprintf("%d files to be processed.", totalFilesToMove))
 	}
 
+	stepStart = time.Now()
 	hashCache, err := hash.InitHashCache("")
 	if err != nil {
 		logger(LoggerTypeWarning, fmt.Sprintf("Failed to load hash cache: %v. Using empty cache.", err))
@@ -75,10 +86,16 @@ func main() {
 	} else {
 		logger(LoggerTypeInfo, "Hash cache loaded successfully.")
 	}
+	stepDuration = time.Since(stepStart)
+	executionSteps = append(executionSteps, ExecutionStep{Name: "Load hash cache", Duration: stepDuration, Order: 2})
 
+	stepStart = time.Now()
 	logger(LoggerTypeInfo, "Creating file hash-map on the destination path.")
 	totalFilesInDestination := countFiles(destinationPath, fileTypes, *organisePhotos, *organiseVideos)
+	stepDuration = time.Since(stepStart)
+	executionSteps = append(executionSteps, ExecutionStep{Name: "Count destination files", Duration: stepDuration, Order: 3})
 
+	stepStart = time.Now()
 	var hashedFiles int64
 	stopHashSpinner := make(chan bool)
 	go spinner(stopHashSpinner, "Hashing:", &hashedFiles, totalFilesInDestination)
@@ -91,9 +108,11 @@ func main() {
 	}
 
 	stopHashSpinner <- true
-	elapsed := time.Since(start)
-	logger(LoggerTypeInfo, fmt.Sprintf("File hash-map created in %.2f seconds.", elapsed.Seconds()))
+	stepDuration = time.Since(stepStart)
+	executionSteps = append(executionSteps, ExecutionStep{Name: "Hash destination files", Duration: stepDuration, Order: 4})
+	logger(LoggerTypeInfo, fmt.Sprintf("File hash-map created in %s.", formatElapsedTime(stepDuration)))
 
+	stepStart = time.Now()
 	var processedFiles int64
 
 	stopSpinner := make(chan bool)
@@ -130,19 +149,20 @@ func main() {
 
 	<-done
 	stopSpinner <- true
+	stepDuration = time.Since(stepStart)
+	executionSteps = append(executionSteps, ExecutionStep{Name: "Process and move files", Duration: stepDuration, Order: 5})
 
-	// Save the hash cache to disk before exiting
+	stepStart = time.Now()
 	if err := hash.SaveHashCache(hashCache, hash.DefaultCacheFilePath); err != nil {
 		logger(LoggerTypeWarning, fmt.Sprintf("Failed to save hash cache: %v", err))
 	} else {
 		logger(LoggerTypeInfo, "Hash cache saved successfully.")
 	}
+	stepDuration = time.Since(stepStart)
+	executionSteps = append(executionSteps, ExecutionStep{Name: "Save hash cache", Duration: stepDuration, Order: 6})
 
-	elapsed = time.Since(start)
-	elapsedString := formatElapsedTime(elapsed)
-
-	logger(LoggerTypeInfo, strconv.Itoa(totalFilesToMove)+" files processed.")
-	logger(LoggerTypeInfo, fmt.Sprintf("Processing completed in %s.", elapsedString))
+	totalElapsed := time.Since(startTotal)
+	displayExecutionSummary(totalElapsed, executionSteps, totalFilesToMove)
 }
 
 func formatElapsedTime(elapsed time.Duration) string {
@@ -152,12 +172,31 @@ func formatElapsedTime(elapsed time.Duration) string {
 
 	if minutes > 0 {
 		if minutes == 1 {
-			return fmt.Sprintf("%d minute and %d seconds", minutes, seconds)
+			return fmt.Sprintf("%d min and %d secs", minutes, seconds)
 		}
-		return fmt.Sprintf("%d minutes and %d seconds", minutes, seconds)
+		return fmt.Sprintf("%d mins and %d secs", minutes, seconds)
 	}
 
-	return fmt.Sprintf("%.2f seconds", elapsed.Seconds())
+	return fmt.Sprintf("%.2f secs", elapsed.Seconds())
+}
+
+func displayExecutionSummary(totalElapsed time.Duration, steps []ExecutionStep, filesProcessed int) {
+	fmt.Println("\n" + strings.Repeat("=", 80))
+	fmt.Println("EXECUTION SUMMARY")
+	fmt.Println(strings.Repeat("=", 80))
+	fmt.Printf("Total files processed: %d\n", filesProcessed)
+	fmt.Printf("Total execution time: %s\n", formatElapsedTime(totalElapsed))
+	fmt.Println(strings.Repeat("-", 80))
+	fmt.Printf("%-40s | %20s | %14s\n", "Step", "Duration", "Percentage")
+	fmt.Println(strings.Repeat("-", 80))
+
+	for _, step := range steps {
+		percentage := (float64(step.Duration.Milliseconds()) / float64(totalElapsed.Milliseconds())) * 100
+		durationStr := formatElapsedTime(step.Duration)
+		fmt.Printf("%-40s | %20s | %13.2f%%\n", step.Name, durationStr, percentage)
+	}
+
+	fmt.Println(strings.Repeat("=", 80))
 }
 
 func spinner(stopSpinner chan bool, verb string, processedFiles *int64, totalFiles int) {
