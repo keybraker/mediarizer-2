@@ -19,12 +19,15 @@ func consumer(
 	geoLocation bool,
 	format string,
 	verbose bool,
-	duplicateStrategy string,
 	processedFiles *int64,
-	done chan<- struct{}) {
+	done chan<- struct{},
+	dupChecker *duplicate.DuplicateChecker) {
 
 	var wg sync.WaitGroup
 	numWorkers := runtime.NumCPU() / 2
+	if numWorkers < 1 {
+		numWorkers = 1
+	}
 
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
@@ -38,7 +41,7 @@ func consumer(
 					geoLocation,
 					format,
 					verbose,
-					duplicateStrategy,
+					dupChecker,
 				)
 
 				atomic.AddInt64(processedFiles, 1)
@@ -57,32 +60,37 @@ func processFileInfo(
 	geoLocation bool,
 	format string,
 	verbose bool,
-	duplicateStrategy string,
+	dupChecker *duplicate.DuplicateChecker,
 ) {
-	var generatedPath string
-	var err error
+	// Check for duplicates first
+	isDup, originalPath, err := dupChecker.CheckAndTrack(fileInfo.Path)
+	if err != nil {
+		errorQueue <- fmt.Errorf("failed to check duplicate for %s: %v", fileInfo.Path, err)
+		return
+	}
 
+	if isDup {
+		duplicatesDir := filepath.Join(destinationPath, "duplicates")
+		if err := duplicate.MoveDuplicate(fileInfo.Path, originalPath, duplicatesDir); err != nil {
+			errorQueue <- fmt.Errorf("failed to move duplicate %s: %v", fileInfo.Path, err)
+		}
+		return
+	}
+
+	var generatedPath string
 	generatedPath, err = getDestinationPath(destinationPath, fileInfo, geoLocation, format)
 	if err != nil {
 		errorQueue <- err
 		return
 	}
 
-	if fileInfo.isDuplicate {
-		generatedPath, err = duplicate.CreateDuplicateFolder(generatedPath, "DUPLICATE")
+	// Check if file already exists and add numeric suffix if needed
+	_, err = os.Stat(generatedPath)
+	if !os.IsNotExist(err) {
+		generatedPath, err = generateUniquePathName(generatedPath)
 		if err != nil {
 			errorQueue <- err
 			return
-		}
-		generatedPath = filepath.Join(generatedPath, filepath.Base(fileInfo.Path))
-	} else {
-		_, err = os.Stat(generatedPath)
-		if !os.IsNotExist(err) {
-			generatedPath, err = generateUniquePathName(generatedPath)
-			if err != nil {
-				errorQueue <- err
-				return
-			}
 		}
 	}
 
@@ -90,22 +98,26 @@ func processFileInfo(
 		fileInfo.Path,
 		generatedPath,
 		verbose,
-		fileInfo.isDuplicate,
-		duplicateStrategy,
 	)
 	if err != nil {
 		errorQueue <- fmt.Errorf("failed to move %s to %s: %v", fileInfo.Path, generatedPath, err)
+	} else {
+		// Track the new file in the index
+		if err := dupChecker.TrackNewFile(generatedPath); err != nil {
+			// Log warning but don't fail
+			// fmt.Printf("Warning: failed to track new file %s: %v\n", generatedPath, err)
+		}
 	}
 }
 
-func moveFile(sourcePath, destinationPath string, verbose bool, isDuplicate bool, duplicateStrategy string) error {
+func moveFile(sourcePath, destinationPath string, verbose bool) error {
 	destPath := filepath.Dir(destinationPath)
 	if err := os.MkdirAll(destPath, os.ModePerm); err != nil {
 		return fmt.Errorf("failed to create destination directory %s: %v", destPath, err)
 	}
 
 	if verbose {
-		moveActionLog, err := logMoveAction(sourcePath, destPath, isDuplicate, duplicateStrategy)
+		moveActionLog, err := logMoveAction(sourcePath, destPath)
 		if err != nil {
 			return err
 		}

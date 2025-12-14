@@ -3,7 +3,7 @@
 Mediarizer2 is a command-line tool for organizing your media files.
 It allows you to easily sort your photos and videos into folders based on date, location, file type, and other criteria.
 
-> As speed is prioritized instead of copying a file it gets transferred to a different location; this means the input and output folders shall be on the same physical drive in order to assure maximum performance.
+> To maximize speed, files are moved (renamed) instead of copying. For best performance, input and output directories are on the same physical drive — moving between different drives requires copying and is significantly slower.
 
 ## Installation
 

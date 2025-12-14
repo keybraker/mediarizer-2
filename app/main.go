@@ -6,12 +6,12 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/keybraker/mediarizer-2/duplicate"
 	"github.com/keybraker/mediarizer-2/hash"
 )
 
@@ -28,12 +28,20 @@ var (
 	showHelp          *bool
 	verbose           *bool
 	showVersion       *bool
+	skipIndex         *bool
 
 	InfoLogger    *log.Logger
 	VerboseLogger *log.Logger
 	WarningLogger *log.Logger
 	ErrorLogger   *log.Logger
 )
+
+// ExecutionStep represents a step in the execution process with timing information
+type ExecutionStep struct {
+	Name     string
+	Duration time.Duration
+	Order    int
+}
 
 func main() {
 	l0 := "   __  ___       ___          _                ___ "
@@ -42,7 +50,8 @@ func main() {
 	l3 := "/_/  /_/\\__/\\_,_/_/\\_,_/_/ /_//__/\\__/_/    /____/ (v1.0.2)"
 	fmt.Println("\n" + l0 + "\n" + l1 + "\n" + l2 + "\n" + l3 + "\n\n\t\t\t\tby Keybraker\n")
 
-	start := time.Now()
+	startTotal := time.Now()
+	executionSteps := []ExecutionStep{}
 
 	flag.Parse()
 	fileTypes := flagProcessor()
@@ -58,48 +67,54 @@ func main() {
 
 	startLoggerHandlers(&wg, infoQueue, warnQueue, errorQueue)
 
-	logger(LoggerTypeInfo, "Counting files in path.")
+	stepStart := time.Now()
+	loggerWithDots(LoggerTypeInfo, "Counting files in path.", 80)
 	totalFilesToMove := countFiles(sourcePath, fileTypes, *organisePhotos, *organiseVideos)
+	stepDuration := time.Since(stepStart)
+	executionSteps = append(executionSteps, ExecutionStep{Name: "Count source files", Duration: stepDuration, Order: 1})
 
 	if totalFilesToMove == 0 {
-		logger(LoggerTypeInfo, "No files in path, exiting.")
+		loggerWithDots(LoggerTypeInfo, "No files in path, exiting.", 80)
 		return
 	} else {
-		logger(LoggerTypeInfo, fmt.Sprintf("%d files to be processed.", totalFilesToMove))
+		loggerWithDots(LoggerTypeInfo, fmt.Sprintf("%d files to be processed.", totalFilesToMove), 80)
 	}
 
+	stepStart = time.Now()
 	hashCache, err := hash.InitHashCache("")
 	if err != nil {
 		logger(LoggerTypeWarning, fmt.Sprintf("Failed to load hash cache: %v. Using empty cache.", err))
 		hashCache = &sync.Map{}
 	} else {
-		logger(LoggerTypeInfo, "Hash cache loaded successfully.")
+		loggerWithDots(LoggerTypeInfo, "Hash cache loaded successfully.", 80)
 	}
+	stepDuration = time.Since(stepStart)
+	executionSteps = append(executionSteps, ExecutionStep{Name: "Load hash cache", Duration: stepDuration, Order: 2})
 
-	logger(LoggerTypeInfo, "Creating file hash-map on the destination path.")
-	totalFilesInDestination := countFiles(destinationPath, fileTypes, *organisePhotos, *organiseVideos)
-
-	var hashedFiles int64
-	stopHashSpinner := make(chan bool)
-	go spinner(stopHashSpinner, "Hashing:", &hashedFiles, totalFilesInDestination)
-
-	fileHashMap, err := hash.HashImagesInPath(destinationPath, hashCache, &hashedFiles)
-	if err != nil {
-		stopHashSpinner <- true
-		logger(LoggerTypeInfo, "Failed to create file hash map.")
-		logger(LoggerTypeFatal, err.Error())
+	// Initialize Duplicate Checker
+	stepStart = time.Now()
+	dupChecker := duplicate.NewDuplicateChecker(destinationPath, hashCache, *skipIndex)
+	var indexedFiles int64
+	if !*skipIndex {
+		stopIndexSpinner := make(chan bool)
+		go spinner(stopIndexSpinner, "Indexing destination:", &indexedFiles, 0)
+		if err := dupChecker.Initialize(&indexedFiles); err != nil {
+			logger(LoggerTypeWarning, fmt.Sprintf("Failed to initialize duplicate checker: %v", err))
+		}
+		stopIndexSpinner <- true
 	}
+	stepDuration = time.Since(stepStart)
+	executionSteps = append(executionSteps, ExecutionStep{Name: "Index destination", Duration: stepDuration, Order: 3})
 
-	stopHashSpinner <- true
-	elapsed := time.Since(start)
-	logger(LoggerTypeInfo, fmt.Sprintf("File hash-map created in %.2f seconds.", elapsed.Seconds()))
-
+	stepStart = time.Now()
 	var processedFiles int64
 
 	stopSpinner := make(chan bool)
 	go spinner(stopSpinner, "Processing:", &processedFiles, totalFilesToMove)
 
 	done := make(chan struct{})
+
+	fileHashMap := &sync.Map{}
 
 	go creator(
 		sourcePath,
@@ -111,7 +126,6 @@ func main() {
 		fileTypes,
 		*organisePhotos,
 		*organiseVideos,
-		*duplicateStrategy,
 		fileHashMap,
 		hashCache,
 	)
@@ -123,26 +137,27 @@ func main() {
 		*geoLocation,
 		*format,
 		*verbose,
-		*duplicateStrategy,
 		&processedFiles,
 		done,
+		dupChecker,
 	)
 
 	<-done
 	stopSpinner <- true
+	stepDuration = time.Since(stepStart)
+	executionSteps = append(executionSteps, ExecutionStep{Name: "Process and move files", Duration: stepDuration, Order: 4})
 
-	// Save the hash cache to disk before exiting
+	stepStart = time.Now()
 	if err := hash.SaveHashCache(hashCache, hash.DefaultCacheFilePath); err != nil {
 		logger(LoggerTypeWarning, fmt.Sprintf("Failed to save hash cache: %v", err))
 	} else {
-		logger(LoggerTypeInfo, "Hash cache saved successfully.")
+		loggerWithDots(LoggerTypeInfo, "Hash cache saved successfully.", 80)
 	}
+	stepDuration = time.Since(stepStart)
+	executionSteps = append(executionSteps, ExecutionStep{Name: "Save hash cache", Duration: stepDuration, Order: 5})
 
-	elapsed = time.Since(start)
-	elapsedString := formatElapsedTime(elapsed)
-
-	logger(LoggerTypeInfo, strconv.Itoa(totalFilesToMove)+" files processed.")
-	logger(LoggerTypeInfo, fmt.Sprintf("Processing completed in %s.", elapsedString))
+	totalElapsed := time.Since(startTotal)
+	displayExecutionSummary(totalElapsed, executionSteps, totalFilesToMove)
 }
 
 func formatElapsedTime(elapsed time.Duration) string {
@@ -152,12 +167,29 @@ func formatElapsedTime(elapsed time.Duration) string {
 
 	if minutes > 0 {
 		if minutes == 1 {
-			return fmt.Sprintf("%d minute and %d seconds", minutes, seconds)
+			return fmt.Sprintf("%d min and %d secs", minutes, seconds)
 		}
-		return fmt.Sprintf("%d minutes and %d seconds", minutes, seconds)
+		return fmt.Sprintf("%d mins and %d secs", minutes, seconds)
 	}
 
-	return fmt.Sprintf("%.2f seconds", elapsed.Seconds())
+	return fmt.Sprintf("%.2f secs", elapsed.Seconds())
+}
+
+func displayExecutionSummary(totalElapsed time.Duration, steps []ExecutionStep, filesProcessed int) {
+	fmt.Println("\n" + strings.Repeat("=", 80))
+	fmt.Printf("Total files processed: %d\n", filesProcessed)
+	fmt.Printf("Total execution time: %s\n", formatElapsedTime(totalElapsed))
+	fmt.Println(strings.Repeat("-", 80))
+	fmt.Printf("%-40s | %20s | %14s\n", "Step", "Duration", "Percentage")
+	fmt.Println(strings.Repeat("-", 80))
+
+	for _, step := range steps {
+		percentage := (float64(step.Duration.Milliseconds()) / float64(totalElapsed.Milliseconds())) * 100
+		durationStr := formatElapsedTime(step.Duration)
+		fmt.Printf("%-40s | %20s | %13.2f%%\n", step.Name, durationStr, percentage)
+	}
+
+	fmt.Println(strings.Repeat("=", 80))
 }
 
 func spinner(stopSpinner chan bool, verb string, processedFiles *int64, totalFiles int) {
@@ -170,8 +202,14 @@ func spinner(stopSpinner chan bool, verb string, processedFiles *int64, totalFil
 			return
 		default:
 			processed := atomic.LoadInt64(processedFiles)
-			percentage := float64(processed) / float64(totalFiles) * 100
-			fmt.Printf("\r%c | %s: %d/%d (%.2f%%)", spinChars[i], verb, processed, totalFiles, percentage)
+			var output string
+			if totalFiles > 0 {
+				percentage := float64(processed) / float64(totalFiles) * 100
+				output = fmt.Sprintf("\r%c | %s: %d/%d (%.2f%%)", spinChars[i], verb, processed, totalFiles, percentage)
+			} else {
+				output = fmt.Sprintf("\r%c | %s: %d files", spinChars[i], verb, processed)
+			}
+			fmt.Print(output)
 			i = (i + 1) % len(spinChars)
 			time.Sleep(100 * time.Millisecond)
 		}
@@ -228,6 +266,7 @@ func init() {
 	showHelp = flag.Bool("help", false, "Display usage guide")
 	verbose = flag.Bool("verbose", false, "Display progress information in console")
 	showVersion = flag.Bool("version", false, "Display version information")
+	skipIndex = flag.Bool("skip-index", false, "Skip indexing destination files (faster startup, but may miss duplicates)")
 
 	InfoLogger = log.New(os.Stdout, "\033[1m\033[34minfo\033[0m:\t", log.Lmsgprefix)
 	VerboseLogger = log.New(os.Stdout, "\033[1m\033[36mverbose\033[0m:\t", log.Ldate|log.Ltime)
@@ -271,7 +310,11 @@ func flagProcessor() []string {
 	}
 
 	if *geoLocation {
-		loadFeatureCollection()
+		fc, err := loadFeatureCollection()
+		if err != nil {
+			logger(LoggerTypeFatal, fmt.Sprintf("failed to load countries.json: %v", err))
+		}
+		featureCollection = fc
 	}
 
 	return fileTypes

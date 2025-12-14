@@ -33,6 +33,10 @@ func getPhotoType(fileExt string) PhotoType {
 		return PNG
 	case ".gif":
 		return GIF
+	case ".dng":
+		return DNG
+	case ".nef":
+		return NEF
 	default:
 		return -1
 	}
