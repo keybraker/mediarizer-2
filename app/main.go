@@ -67,16 +67,16 @@ func main() {
 	startLoggerHandlers(&wg, infoQueue, warnQueue, errorQueue)
 
 	stepStart := time.Now()
-	logger(LoggerTypeInfo, "Counting files in path.")
+	loggerWithDots(LoggerTypeInfo, "Counting files in path.", 80)
 	totalFilesToMove := countFiles(sourcePath, fileTypes, *organisePhotos, *organiseVideos)
 	stepDuration := time.Since(stepStart)
 	executionSteps = append(executionSteps, ExecutionStep{Name: "Count source files", Duration: stepDuration, Order: 1})
 
 	if totalFilesToMove == 0 {
-		logger(LoggerTypeInfo, "No files in path, exiting.")
+		loggerWithDots(LoggerTypeInfo, "No files in path, exiting.", 80)
 		return
 	} else {
-		logger(LoggerTypeInfo, fmt.Sprintf("%d files to be processed.", totalFilesToMove))
+		loggerWithDots(LoggerTypeInfo, fmt.Sprintf("%d files to be processed.", totalFilesToMove), 80)
 	}
 
 	stepStart = time.Now()
@@ -85,7 +85,7 @@ func main() {
 		logger(LoggerTypeWarning, fmt.Sprintf("Failed to load hash cache: %v. Using empty cache.", err))
 		hashCache = &sync.Map{}
 	} else {
-		logger(LoggerTypeInfo, "Hash cache loaded successfully.")
+		loggerWithDots(LoggerTypeInfo, "Hash cache loaded successfully.", 80)
 	}
 	stepDuration = time.Since(stepStart)
 	executionSteps = append(executionSteps, ExecutionStep{Name: "Load hash cache", Duration: stepDuration, Order: 2})
@@ -131,7 +131,7 @@ func main() {
 	executionSteps = append(executionSteps, ExecutionStep{Name: "Process and move files", Duration: stepDuration, Order: 4})
 
 	stepStart = time.Now()
-	logger(LoggerTypeInfo, "Organizing duplicates in destination path.")
+	loggerWithDots(LoggerTypeInfo, "Organizing duplicates in destination path.", 80)
 
 	var processedDuplicateFiles int64
 	stopDuplicateSpinner := make(chan bool)
@@ -148,7 +148,7 @@ func main() {
 	if err != nil {
 		logger(LoggerTypeWarning, fmt.Sprintf("Failed to organize duplicates: %v", err))
 	} else {
-		logger(LoggerTypeInfo, "Duplicates organized successfully.")
+		loggerWithDots(LoggerTypeInfo, "Duplicates organized successfully.", 80)
 	}
 	stepDuration = time.Since(stepStart)
 	executionSteps = append(executionSteps, ExecutionStep{Name: "Organize duplicates", Duration: stepDuration, Order: 5})
@@ -157,7 +157,7 @@ func main() {
 	if err := hash.SaveHashCache(hashCache, hash.DefaultCacheFilePath); err != nil {
 		logger(LoggerTypeWarning, fmt.Sprintf("Failed to save hash cache: %v", err))
 	} else {
-		logger(LoggerTypeInfo, "Hash cache saved successfully.")
+		loggerWithDots(LoggerTypeInfo, "Hash cache saved successfully.", 80)
 	}
 	stepDuration = time.Since(stepStart)
 	executionSteps = append(executionSteps, ExecutionStep{Name: "Save hash cache", Duration: stepDuration, Order: 6})
@@ -270,8 +270,6 @@ func formatElapsedTime(elapsed time.Duration) string {
 
 func displayExecutionSummary(totalElapsed time.Duration, steps []ExecutionStep, filesProcessed int) {
 	fmt.Println("\n" + strings.Repeat("=", 80))
-	fmt.Println("EXECUTION SUMMARY")
-	fmt.Println(strings.Repeat("=", 80))
 	fmt.Printf("Total files processed: %d\n", filesProcessed)
 	fmt.Printf("Total execution time: %s\n", formatElapsedTime(totalElapsed))
 	fmt.Println(strings.Repeat("-", 80))

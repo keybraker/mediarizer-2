@@ -107,3 +107,16 @@ func logger(loggerType string, message string) {
 		ErrorLogger.Println("Unknown logger type:", loggerType)
 	}
 }
+
+func loggerWithDots(loggerType string, message string, totalWidth int) {
+	dotsCount := totalWidth - len(message) - 12
+	if dotsCount < 0 {
+		dotsCount = 0
+	}
+	dots := ""
+	for i := 0; i < dotsCount; i++ {
+		dots += "."
+	}
+	formattedMessage := message + dots + "done"
+	logger(loggerType, formattedMessage)
+}
