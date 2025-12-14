@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -43,10 +42,47 @@ type hashCacheFile struct {
 type serializedCachedFile struct {
 	Size    int64     `json:"size"`
 	ModTime time.Time `json:"mod_time"`
-	Hash    string    `json:"hash"` // Hex string representation
+	Hash    string    `json:"hash"`
 }
 
 const DefaultCacheFilePath = "hash_cache.json"
+
+var (
+	supportedImageExts = map[string]bool{
+		".jpg": true, ".jpeg": true, ".png": true, ".gif": true,
+		".bmp": true, ".tiff": true, ".dng": true, ".nef": true,
+	}
+	supportedVideoExts = map[string]bool{
+		".mp4": true, ".avi": true, ".mov": true, ".mkv": true,
+	}
+	skippableDirs = map[string]bool{
+		"videos": true, "unknown": true, ".git": true,
+		".cache": true, "node_modules": true, "duplicate": true,
+	}
+)
+
+// IsSupportedMediaFile checks if the file is a supported media type
+func IsSupportedMediaFile(filePath string) bool {
+	ext := strings.ToLower(filepath.Ext(filePath))
+	return supportedImageExts[ext] || supportedVideoExts[ext]
+}
+
+// IsImageFile checks if the file is an image
+func IsImageFile(filePath string) bool {
+	ext := strings.ToLower(filepath.Ext(filePath))
+	return supportedImageExts[ext]
+}
+
+// IsVideoFile checks if the file is a video
+func IsVideoFile(filePath string) bool {
+	ext := strings.ToLower(filepath.Ext(filePath))
+	return supportedVideoExts[ext]
+}
+
+// IsSkippableDirectory checks if directory should be skipped
+func IsSkippableDirectory(dirName string) bool {
+	return skippableDirs[strings.ToLower(dirName)]
+}
 
 type readerAtWrapper struct {
 	readerAt io.ReaderAt
@@ -63,25 +99,7 @@ func (r *readerAtWrapper) Read(p []byte) (n int, err error) {
 	return n, err
 }
 
-func isImageFile(filePath string) bool {
-	lowerFilePath := strings.ToLower(filePath)
-	return strings.HasSuffix(lowerFilePath, ".jpg") || strings.HasSuffix(lowerFilePath, ".jpeg") ||
-		strings.HasSuffix(lowerFilePath, ".png") || strings.HasSuffix(lowerFilePath, ".gif") ||
-		strings.HasSuffix(lowerFilePath, ".bmp") || strings.HasSuffix(lowerFilePath, ".tiff") ||
-		strings.HasSuffix(lowerFilePath, ".dng") || strings.HasSuffix(lowerFilePath, ".nef")
-}
-
-func isVideoFile(filePath string) bool {
-	lowerFilePath := strings.ToLower(filePath)
-	return strings.HasSuffix(lowerFilePath, ".mp4") || strings.HasSuffix(lowerFilePath, ".avi") ||
-		strings.HasSuffix(lowerFilePath, ".mov") || strings.HasSuffix(lowerFilePath, ".mkv")
-}
-
-func isSupportedMediaFile(filePath string) bool {
-	return isImageFile(filePath) || isVideoFile(filePath)
-}
-
-// calculateFileHash calculates the SHA-256 hash of the file at the given filePath.
+// calculateFileHash calculates the SHA-256 hash of the file
 func calculateFileHash(filePath string) ([]byte, error) {
 	readerAt, err := mmap.Open(filePath)
 	if err != nil {
@@ -93,23 +111,22 @@ func calculateFileHash(filePath string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat file %s: %v", filePath, err)
 	}
-	fileSize := fileInfo.Size()
 
 	reader := &readerAtWrapper{
 		readerAt: readerAt,
 		offset:   0,
-		size:     fileSize,
+		size:     fileInfo.Size(),
 	}
 
-	hash := sha256.New()
-	if _, err := io.Copy(hash, reader); err != nil {
+	h := sha256.New()
+	if _, err := io.Copy(h, reader); err != nil {
 		return nil, fmt.Errorf("failed to calculate hash for file %s: %v", filePath, err)
 	}
 
-	return hash.Sum(nil), nil
+	return h.Sum(nil), nil
 }
 
-// GetFileHash retrieves or calculates the hash of the file at filePath.
+// GetFileHash retrieves or calculates the hash of the file
 func GetFileHash(filePath string, hashCache *sync.Map) ([]byte, error) {
 	info, err := os.Stat(filePath)
 	if err != nil {
@@ -118,9 +135,10 @@ func GetFileHash(filePath string, hashCache *sync.Map) ([]byte, error) {
 	meta := FileMeta{Size: info.Size(), ModTime: info.ModTime()}
 
 	if cached, found := hashCache.Load(filePath); found {
-		cachedFile := cached.(CachedFile)
-		if cachedFile.Size == meta.Size && cachedFile.ModTime.Equal(meta.ModTime) {
-			return cachedFile.Hash, nil
+		if cachedFile, ok := cached.(CachedFile); ok {
+			if cachedFile.Size == meta.Size && cachedFile.ModTime.Equal(meta.ModTime) {
+				return cachedFile.Hash, nil
+			}
 		}
 	}
 
@@ -129,16 +147,28 @@ func GetFileHash(filePath string, hashCache *sync.Map) ([]byte, error) {
 		return nil, err
 	}
 
-	cachedFile := CachedFile{
-		FileMeta: meta,
-		Hash:     hashValue,
-	}
-	hashCache.Store(filePath, cachedFile)
-
+	hashCache.Store(filePath, CachedFile{FileMeta: meta, Hash: hashValue})
 	return hashValue, nil
 }
 
-// LoadHashCache loads the hash cache from the specified JSON file.
+// GetFileHashString returns the hex-encoded hash string
+func GetFileHashString(filePath string, hashCache *sync.Map) (string, error) {
+	h, err := GetFileHash(filePath, hashCache)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h), nil
+}
+
+// InitHashCache initializes the hash cache from file
+func InitHashCache(cachePath string) (*sync.Map, error) {
+	if cachePath == "" {
+		cachePath = DefaultCacheFilePath
+	}
+	return LoadHashCache(cachePath)
+}
+
+// LoadHashCache loads the hash cache from JSON file
 func LoadHashCache(cachePath string) (*sync.Map, error) {
 	hashCache := &sync.Map{}
 
@@ -152,26 +182,19 @@ func LoadHashCache(cachePath string) (*sync.Map, error) {
 	}
 
 	var cacheFile hashCacheFile
-	err = json.Unmarshal(data, &cacheFile)
-	if err != nil {
+	if err := json.Unmarshal(data, &cacheFile); err != nil {
 		return hashCache, fmt.Errorf("failed to unmarshal hash cache: %v", err)
 	}
 
 	for filePath, serialized := range cacheFile.Files {
 		hashBytes, err := hex.DecodeString(serialized.Hash)
 		if err != nil {
-			continue // Skip invalid entries
+			continue
 		}
-
-		cachedFile := CachedFile{
-			FileMeta: FileMeta{
-				Size:    serialized.Size,
-				ModTime: serialized.ModTime,
-			},
-			Hash: hashBytes,
-		}
-
-		hashCache.Store(filePath, cachedFile)
+		hashCache.Store(filePath, CachedFile{
+			FileMeta: FileMeta{Size: serialized.Size, ModTime: serialized.ModTime},
+			Hash:     hashBytes,
+		})
 	}
 
 	for dirPath, dirHash := range cacheFile.Directories {
@@ -181,7 +204,7 @@ func LoadHashCache(cachePath string) (*sync.Map, error) {
 	return hashCache, nil
 }
 
-// SaveHashCache saves the hash cache to a JSON file.
+// SaveHashCache saves the hash cache to JSON file
 func SaveHashCache(hashCache *sync.Map, cachePath string) error {
 	cacheFile := hashCacheFile{
 		Files:       make(map[string]serializedCachedFile),
@@ -189,28 +212,24 @@ func SaveHashCache(hashCache *sync.Map, cachePath string) error {
 	}
 
 	hashCache.Range(func(key, value interface{}) bool {
-		if strKey, ok := key.(string); ok && strings.HasPrefix(strKey, "dir:") {
+		strKey, ok := key.(string)
+		if !ok {
+			return true
+		}
+
+		if strings.HasPrefix(strKey, "dir:") {
 			if dirHash, ok := value.(DirectoryHash); ok {
-				dirPath := strings.TrimPrefix(strKey, "dir:")
-				cacheFile.Directories[dirPath] = dirHash
-				return true
+				cacheFile.Directories[strings.TrimPrefix(strKey, "dir:")] = dirHash
 			}
-		}
-
-		filePath, ok := key.(string)
-		if !ok {
 			return true
 		}
 
-		cachedFile, ok := value.(CachedFile)
-		if !ok {
-			return true
-		}
-
-		cacheFile.Files[filePath] = serializedCachedFile{
-			Size:    cachedFile.Size,
-			ModTime: cachedFile.ModTime,
-			Hash:    hex.EncodeToString(cachedFile.Hash),
+		if cachedFile, ok := value.(CachedFile); ok {
+			cacheFile.Files[strKey] = serializedCachedFile{
+				Size:    cachedFile.Size,
+				ModTime: cachedFile.ModTime,
+				Hash:    hex.EncodeToString(cachedFile.Hash),
+			}
 		}
 		return true
 	})
@@ -220,15 +239,12 @@ func SaveHashCache(hashCache *sync.Map, cachePath string) error {
 		return fmt.Errorf("failed to marshal hash cache: %v", err)
 	}
 
-	// Write atomically to reduce risk of corrupting the cache file on crash.
 	tmpPath := cachePath + ".tmp"
 	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write hash cache temp file: %v", err)
 	}
-	// Windows cannot rename over an existing file.
-	if err := os.Remove(cachePath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove existing hash cache file: %v", err)
-	}
+
+	_ = os.Remove(cachePath)
 	if err := os.Rename(tmpPath, cachePath); err != nil {
 		return fmt.Errorf("failed to replace hash cache file: %v", err)
 	}
@@ -236,184 +252,78 @@ func SaveHashCache(hashCache *sync.Map, cachePath string) error {
 	return nil
 }
 
-// InitHashCache initializes the hash cache, loading from file if it exists.
-func InitHashCache(cachePath string) (*sync.Map, error) {
-	if cachePath == "" {
-		cachePath = DefaultCacheFilePath
-	}
-
-	return LoadHashCache(cachePath)
-}
-
-// isSkippableDirectory checks if a directory should be skipped during hashing
-// to improve performance on large directory trees.
-func isSkippableDirectory(dirName string) bool {
-	lowerDirName := strings.ToLower(dirName)
-	skippableDirs := map[string]bool{
-		"videos":       true,
-		"unknown":      true,
-		".git":         true,
-		".cache":       true,
-		"node_modules": true,
-	}
-	return skippableDirs[lowerDirName]
-}
-
-// markDirectoryAsHashed records that a directory has been hashed.
-func markDirectoryAsHashed(dirPath string, fileCount int, modTime time.Time, files []string, hashCache *sync.Map) {
-	dirHash := DirectoryHash{
-		LastScanned: time.Now(),
-		ModTime:     modTime,
-		FileCount:   fileCount,
-		Files:       files,
-	}
-	hashCache.Store("dir:"+dirPath, dirHash)
-}
-
-// HashImagesInPath hashes all images in the given path and updates the fileHashMap.
-func HashImagesInPath(path string, hashCache *sync.Map, hashedFiles *int64) (*sync.Map, error) {
+// HashFilesInPath hashes files incrementally using workers
+func HashFilesInPath(path string, hashCache *sync.Map, hashedFiles *int64, fileFilter func(string) bool) (*sync.Map, error) {
 	fileHashMap := &sync.Map{}
 	fileChan := make(chan string, 500)
-	errChan := make(chan error)
+	errChan := make(chan error, 1)
 	var wg sync.WaitGroup
-	dirFiles := make(map[string][]string)
-	dirModTimes := make(map[string]time.Time)
-	processedDirs := make(map[string]bool)
-	var dirMutex sync.Mutex
 
-	numWorkers := runtime.NumCPU() * 4
+	numWorkers := runtime.NumCPU() * 2
+	if numWorkers < 4 {
+		numWorkers = 4
+	}
 
+	// Start workers
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for filePath := range fileChan {
-				if isSupportedMediaFile(filePath) {
-					hashValue, err := GetFileHash(filePath, hashCache)
-					if err != nil {
-						errChan <- fmt.Errorf("failed to get file hash for %s: %v", filePath, err)
-						return
-					}
-
-					hashStr := hex.EncodeToString(hashValue)
-					fileHashMap.Store(hashStr, true)
-
-					atomic.AddInt64(hashedFiles, 1)
+				if fileFilter != nil && !fileFilter(filePath) {
+					continue
 				}
+				if !IsSupportedMediaFile(filePath) {
+					continue
+				}
+
+				hashStr, err := GetFileHashString(filePath, hashCache)
+				if err != nil {
+					select {
+					case errChan <- fmt.Errorf("failed to hash %s: %v", filePath, err):
+					default:
+					}
+					return
+				}
+
+				fileHashMap.Store(hashStr, filePath)
+				atomic.AddInt64(hashedFiles, 1)
 			}
 		}()
 	}
 
+	// Walk directory
 	go func() {
 		defer close(fileChan)
-		err := filepath.WalkDir(path, func(dirPath string, d fs.DirEntry, err error) error {
+		_ = filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
 			if err != nil {
-				errChan <- fmt.Errorf("failed to walk path %s: %v", dirPath, err)
-				return err
+				return nil
 			}
-
 			if d.IsDir() {
-				if isSkippableDirectory(d.Name()) {
+				if IsSkippableDirectory(d.Name()) {
 					return filepath.SkipDir
 				}
-
-				info, err := d.Info()
-				if err == nil {
-					if cached, found := hashCache.Load("dir:" + dirPath); found {
-						if dirHash, ok := cached.(DirectoryHash); ok {
-							if dirHash.ModTime.Equal(info.ModTime()) && len(dirHash.Files) > 0 {
-								allFilesFound := true
-								for _, fileName := range dirHash.Files {
-									fullPath := filepath.Join(dirPath, fileName)
-									if cachedFileVal, ok := hashCache.Load(fullPath); ok {
-										if cachedFile, ok := cachedFileVal.(CachedFile); ok {
-											hashStr := hex.EncodeToString(cachedFile.Hash)
-											fileHashMap.Store(hashStr, true)
-											atomic.AddInt64(hashedFiles, 1)
-										} else {
-											allFilesFound = false
-											break
-										}
-									} else {
-										allFilesFound = false
-										break
-									}
-								}
-
-								if allFilesFound {
-									dirMutex.Lock()
-									processedDirs[dirPath] = true
-									dirFiles[dirPath] = dirHash.Files
-									dirModTimes[dirPath] = dirHash.ModTime
-									dirMutex.Unlock()
-									return nil
-								}
-							}
-						}
-					}
-
-					dirMutex.Lock()
-					dirModTimes[dirPath] = info.ModTime()
-					dirMutex.Unlock()
-				}
 				return nil
 			}
-
-			if !d.Type().IsRegular() {
-				return nil
+			if d.Type().IsRegular() {
+				fileChan <- p
 			}
-
-			currentDir := filepath.Dir(dirPath)
-			dirMutex.Lock()
-			skipped := processedDirs[currentDir]
-			dirMutex.Unlock()
-
-			if skipped {
-				return nil
-			}
-
-			fileChan <- dirPath
-
-			dirMutex.Lock()
-			dirFiles[currentDir] = append(dirFiles[currentDir], d.Name())
-			dirMutex.Unlock()
-
 			return nil
 		})
-
-		if err != nil {
-			errChan <- err
-		}
 	}()
 
-	go func() {
-		wg.Wait()
-		close(errChan)
-	}()
+	wg.Wait()
+	close(errChan)
 
-	for err := range errChan {
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	dirMutex.Lock()
-	for dirPath, files := range dirFiles {
-		modTime, ok := dirModTimes[dirPath]
-		if !ok {
-			if info, err := os.Stat(dirPath); err == nil {
-				modTime = info.ModTime()
-			} else {
-				modTime = time.Now()
-			}
-		}
-		markDirectoryAsHashed(dirPath, len(files), modTime, files, hashCache)
-	}
-	dirMutex.Unlock()
-
-	if err := SaveHashCache(hashCache, DefaultCacheFilePath); err != nil {
-		fmt.Printf("Warning: Failed to save hash cache: %v\n", err)
+	if err := <-errChan; err != nil {
+		return nil, err
 	}
 
 	return fileHashMap, nil
+}
+
+// BuildDestinationHashIndex builds a hash->path index for destination files
+// This is optimized to use cache aggressively and skip already-indexed directories
+func BuildDestinationHashIndex(destPath string, hashCache *sync.Map, progress *int64) (*sync.Map, error) {
+	return HashFilesInPath(destPath, hashCache, progress, nil)
 }

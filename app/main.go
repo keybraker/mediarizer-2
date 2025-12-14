@@ -28,6 +28,7 @@ var (
 	showHelp          *bool
 	verbose           *bool
 	showVersion       *bool
+	skipIndex         *bool
 
 	InfoLogger    *log.Logger
 	VerboseLogger *log.Logger
@@ -90,6 +91,21 @@ func main() {
 	stepDuration = time.Since(stepStart)
 	executionSteps = append(executionSteps, ExecutionStep{Name: "Load hash cache", Duration: stepDuration, Order: 2})
 
+	// Initialize Duplicate Checker
+	stepStart = time.Now()
+	dupChecker := duplicate.NewDuplicateChecker(destinationPath, hashCache, *skipIndex)
+	var indexedFiles int64
+	if !*skipIndex {
+		stopIndexSpinner := make(chan bool)
+		go spinner(stopIndexSpinner, "Indexing destination:", &indexedFiles, 0)
+		if err := dupChecker.Initialize(&indexedFiles); err != nil {
+			logger(LoggerTypeWarning, fmt.Sprintf("Failed to initialize duplicate checker: %v", err))
+		}
+		stopIndexSpinner <- true
+	}
+	stepDuration = time.Since(stepStart)
+	executionSteps = append(executionSteps, ExecutionStep{Name: "Index destination", Duration: stepDuration, Order: 3})
+
 	stepStart = time.Now()
 	var processedFiles int64
 
@@ -123,7 +139,7 @@ func main() {
 		*verbose,
 		&processedFiles,
 		done,
-		hashCache,
+		dupChecker,
 	)
 
 	<-done
@@ -132,128 +148,16 @@ func main() {
 	executionSteps = append(executionSteps, ExecutionStep{Name: "Process and move files", Duration: stepDuration, Order: 4})
 
 	stepStart = time.Now()
-	loggerWithDots(LoggerTypeInfo, "Organizing duplicates in destination path.", 80)
-
-	var processedDuplicateFiles int64
-	stopDuplicateSpinner := make(chan bool)
-	spinnerDone := make(chan bool)
-	go func() {
-		spinner(stopDuplicateSpinner, "Organizing:", &processedDuplicateFiles, 0)
-		spinnerDone <- true
-	}()
-
-	err = organizeDuplicatesInDestination(destinationPath, fileTypes, *organisePhotos, *organiseVideos, *duplicateStrategy, hashCache, &processedDuplicateFiles)
-
-	stopDuplicateSpinner <- true
-	<-spinnerDone // Wait for spinner to finish clearing
-	if err != nil {
-		logger(LoggerTypeWarning, fmt.Sprintf("Failed to organize duplicates: %v", err))
-	} else {
-		loggerWithDots(LoggerTypeInfo, "Duplicates organized successfully.", 80)
-	}
-	stepDuration = time.Since(stepStart)
-	executionSteps = append(executionSteps, ExecutionStep{Name: "Organize duplicates", Duration: stepDuration, Order: 5})
-
-	stepStart = time.Now()
 	if err := hash.SaveHashCache(hashCache, hash.DefaultCacheFilePath); err != nil {
 		logger(LoggerTypeWarning, fmt.Sprintf("Failed to save hash cache: %v", err))
 	} else {
 		loggerWithDots(LoggerTypeInfo, "Hash cache saved successfully.", 80)
 	}
 	stepDuration = time.Since(stepStart)
-	executionSteps = append(executionSteps, ExecutionStep{Name: "Save hash cache", Duration: stepDuration, Order: 6})
+	executionSteps = append(executionSteps, ExecutionStep{Name: "Save hash cache", Duration: stepDuration, Order: 5})
 
 	totalElapsed := time.Since(startTotal)
 	displayExecutionSummary(totalElapsed, executionSteps, totalFilesToMove)
-}
-
-// organizeDuplicatesInDestination scans the destination directory for duplicate files
-// and organizes them into DUPLICATE folders according to the duplicateStrategy
-func organizeDuplicatesInDestination(destinationPath string, fileTypes []string, organisePhotos bool, organiseVideos bool, duplicateStrategy string, hashCache *sync.Map, processedDuplicateFiles *int64) error {
-	fileHashMap := &sync.Map{}
-	var hashedFiles int64
-
-	var err error
-	// Hash files to ensure cache is warm, but ignore the returned map for duplicate detection
-	// because we want to find duplicates *within* the destination, not just existence.
-	_, err = hash.HashImagesInPath(destinationPath, hashCache, &hashedFiles)
-	if err != nil {
-		return fmt.Errorf("failed to hash files in destination: %v", err)
-	}
-
-	// Scan for duplicates (spinner shows progress, so skip logging here)
-	err = filepath.Walk(destinationPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if info.IsDir() {
-			return nil
-		}
-
-		ext := strings.ToLower(filepath.Ext(path))
-
-		if !((organisePhotos && isPhoto(ext)) || (organiseVideos && isVideo(ext))) {
-			return nil
-		}
-
-		if len(fileTypes) > 0 && !arrayContains(fileTypes, ext) {
-			return nil
-		}
-
-		// Skip files already in DUPLICATE folders
-		if strings.Contains(path, "DUPLICATE") {
-			return nil
-		}
-
-		atomic.AddInt64(processedDuplicateFiles, 1)
-
-		isDuplicate, err := duplicate.IsDuplicate(path, duplicateStrategy, fileHashMap, hashCache)
-		if err != nil {
-			return err
-		}
-
-		if isDuplicate {
-			switch duplicateStrategy {
-			case "skip":
-				logger(LoggerTypeVerbose, fmt.Sprintf("Skipped duplicate: %s", filepath.Base(path)))
-				return nil
-			case "delete":
-				if err := os.Remove(path); err != nil {
-					return fmt.Errorf("failed to delete duplicate file %s: %v", path, err)
-				}
-				logger(LoggerTypeVerbose, fmt.Sprintf("Deleted duplicate: %s", filepath.Base(path)))
-				return nil
-			case "move":
-				dir := filepath.Dir(path)
-				fileName := filepath.Base(path)
-				duplicateFolderPath, err := duplicate.CreateDuplicateFolder(filepath.Join(dir, fileName), "DUPLICATE")
-				if err != nil {
-					return err
-				}
-
-				newPath := filepath.Join(duplicateFolderPath, fileName)
-
-				_, err = os.Stat(newPath)
-				if !os.IsNotExist(err) {
-					newPath, err = generateUniquePathName(newPath)
-					if err != nil {
-						return err
-					}
-				}
-
-				if err := os.Rename(path, newPath); err != nil {
-					return fmt.Errorf("failed to move duplicate file %s to %s: %v", path, newPath, err)
-				}
-
-				logger(LoggerTypeVerbose, fmt.Sprintf("Moved duplicate: %s -> %s", fileName, newPath))
-			}
-		}
-
-		return nil
-	})
-
-	return err
 }
 
 func formatElapsedTime(elapsed time.Duration) string {
@@ -362,6 +266,7 @@ func init() {
 	showHelp = flag.Bool("help", false, "Display usage guide")
 	verbose = flag.Bool("verbose", false, "Display progress information in console")
 	showVersion = flag.Bool("version", false, "Display version information")
+	skipIndex = flag.Bool("skip-index", false, "Skip indexing destination files (faster startup, but may miss duplicates)")
 
 	InfoLogger = log.New(os.Stdout, "\033[1m\033[34minfo\033[0m:\t", log.Lmsgprefix)
 	VerboseLogger = log.New(os.Stdout, "\033[1m\033[36mverbose\033[0m:\t", log.Ldate|log.Ltime)

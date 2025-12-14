@@ -5,62 +5,113 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-
-	"github.com/keybraker/mediarizer-2/hash"
 )
 
-func TestIsDuplicate_SecondOccurrenceIsDuplicate(t *testing.T) {
+func TestDuplicateChecker_CheckAndTrack(t *testing.T) {
 	dir := t.TempDir()
-	p := filepath.Join(dir, "x.jpg")
-	if err := os.WriteFile(p, []byte("same"), 0644); err != nil {
-		t.Fatalf("write: %v", err)
+	destDir := filepath.Join(dir, "dest")
+	if err := os.Mkdir(destDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
 	}
 
-	fileHashMap := &sync.Map{}
+	// Create a file in destination
+	destFile := filepath.Join(destDir, "existing.jpg")
+	if err := os.WriteFile(destFile, []byte("content"), 0644); err != nil {
+		t.Fatalf("write dest file: %v", err)
+	}
+
+	// Create a source file with same content
+	srcFile := filepath.Join(dir, "source.jpg")
+	if err := os.WriteFile(srcFile, []byte("content"), 0644); err != nil {
+		t.Fatalf("write src file: %v", err)
+	}
+
+	// Create a source file with different content
+	uniqueFile := filepath.Join(dir, "unique.jpg")
+	if err := os.WriteFile(uniqueFile, []byte("unique"), 0644); err != nil {
+		t.Fatalf("write unique file: %v", err)
+	}
+
 	hashCache := &sync.Map{}
+	dc := NewDuplicateChecker(destDir, hashCache, false)
 
-	dup, err := IsDuplicate(p, "move", fileHashMap, hashCache)
+	var progress int64
+	if err := dc.Initialize(&progress); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+
+	// Check duplicate
+	isDup, origPath, err := dc.CheckAndTrack(srcFile)
 	if err != nil {
-		t.Fatalf("IsDuplicate #1: %v", err)
+		t.Fatalf("CheckAndTrack duplicate: %v", err)
 	}
-	if dup {
-		t.Fatalf("first occurrence should not be duplicate")
+	if !isDup {
+		t.Fatalf("expected duplicate to be detected")
+	}
+	if origPath != destFile {
+		t.Fatalf("expected original path %s, got %s", destFile, origPath)
 	}
 
-	dup, err = IsDuplicate(p, "move", fileHashMap, hashCache)
+	// Check unique
+	isDup, _, err = dc.CheckAndTrack(uniqueFile)
 	if err != nil {
-		t.Fatalf("IsDuplicate #2: %v", err)
+		t.Fatalf("CheckAndTrack unique: %v", err)
 	}
-	if !dup {
-		t.Fatalf("second occurrence should be duplicate")
-	}
-
-	// Ensure hash was cached.
-	if _, ok := hashCache.Load(p); !ok {
-		t.Fatalf("expected hash cache entry")
+	if isDup {
+		t.Fatalf("expected unique file not to be duplicate")
 	}
 
-	// Sanity: cache entry type.
-	if v, ok := hashCache.Load(p); ok {
-		if _, ok := v.(hash.CachedFile); !ok {
-			t.Fatalf("expected CachedFile type")
-		}
+	// Track the unique file (simulating move)
+	// We need to move it first because TrackNewFile expects file to exist at path?
+	// Actually TrackNewFile just hashes the file at path and adds to index.
+	// In real usage, we move then track.
+	if err := dc.TrackNewFile(uniqueFile); err != nil {
+		t.Fatalf("TrackNewFile: %v", err)
+	}
+
+	// Check unique again (should now be duplicate)
+	isDup, _, err = dc.CheckAndTrack(uniqueFile)
+	if err != nil {
+		t.Fatalf("CheckAndTrack unique 2nd time: %v", err)
+	}
+	if !isDup {
+		t.Fatalf("expected tracked file to be detected as duplicate")
 	}
 }
 
-func TestCreateDuplicateFolder_CreatesFolder(t *testing.T) {
+func TestMoveDuplicate(t *testing.T) {
 	dir := t.TempDir()
-	fakeDest := filepath.Join(dir, "a.jpg")
+	srcFile := filepath.Join(dir, "dup.jpg")
+	if err := os.WriteFile(srcFile, []byte("dup"), 0644); err != nil {
+		t.Fatalf("write src: %v", err)
+	}
 
-	dupFolder, err := CreateDuplicateFolder(fakeDest, "DUPLICATE")
+	duplicatesDir := filepath.Join(dir, "duplicates")
+	// duplicatesDir doesn't exist yet
+
+	err := MoveDuplicate(srcFile, "original/path/ignored", duplicatesDir)
 	if err != nil {
-		t.Fatalf("CreateDuplicateFolder: %v", err)
+		t.Fatalf("MoveDuplicate: %v", err)
 	}
 
-	if filepath.Base(dupFolder) != "DUPLICATE" {
-		t.Fatalf("expected DUPLICATE folder name, got %s", filepath.Base(dupFolder))
+	destFile := filepath.Join(duplicatesDir, "dup.jpg")
+	if _, err := os.Stat(destFile); os.IsNotExist(err) {
+		t.Fatalf("expected file to be moved to %s", destFile)
 	}
-	if st, err := os.Stat(dupFolder); err != nil || !st.IsDir() {
-		t.Fatalf("expected folder to exist")
+
+	// Test collision handling
+	srcFile2 := filepath.Join(dir, "dup.jpg") // Recreate source
+	if err := os.WriteFile(srcFile2, []byte("dup2"), 0644); err != nil {
+		t.Fatalf("write src2: %v", err)
+	}
+
+	err = MoveDuplicate(srcFile2, "original/path/ignored", duplicatesDir)
+	if err != nil {
+		t.Fatalf("MoveDuplicate 2: %v", err)
+	}
+
+	destFile2 := filepath.Join(duplicatesDir, "dup_1.jpg")
+	if _, err := os.Stat(destFile2); os.IsNotExist(err) {
+		t.Fatalf("expected file to be renamed to %s", destFile2)
 	}
 }

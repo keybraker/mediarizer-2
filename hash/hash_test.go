@@ -109,8 +109,8 @@ func TestSaveLoadHashCache_RoundTrip(t *testing.T) {
 	}
 }
 
-func TestHashImagesInPath_UsesDirectoryCacheFastPath(t *testing.T) {
-	// HashImagesInPath writes DefaultCacheFilePath in the current working directory.
+func TestBuildDestinationHashIndex_UsesDirectoryCacheFastPath(t *testing.T) {
+	// BuildDestinationHashIndex writes DefaultCacheFilePath in the current working directory.
 	cwd, _ := os.Getwd()
 	defer func() { _ = os.Chdir(cwd) }()
 	_ = os.Chdir(t.TempDir())
@@ -134,9 +134,9 @@ func TestHashImagesInPath_UsesDirectoryCacheFastPath(t *testing.T) {
 	cache.Store("dir:"+root, DirectoryHash{LastScanned: time.Now(), ModTime: rootInfo.ModTime(), FileCount: 1, Files: []string{filepath.Base(p)}})
 
 	var hashed int64
-	m, err := HashImagesInPath(root, cache, &hashed)
+	m, err := BuildDestinationHashIndex(root, cache, &hashed)
 	if err != nil {
-		t.Fatalf("HashImagesInPath: %v", err)
+		t.Fatalf("BuildDestinationHashIndex: %v", err)
 	}
 	if hashed != 1 {
 		t.Fatalf("expected hashedFiles=1, got %d", hashed)
@@ -144,14 +144,12 @@ func TestHashImagesInPath_UsesDirectoryCacheFastPath(t *testing.T) {
 
 	exists := false
 	hashStr := hex.EncodeToString(hashBytes)
-	m.Range(func(k, v any) bool {
-		if ks, ok := k.(string); ok && ks == hashStr {
+	if val, ok := m.Load(hashStr); ok {
+		if val.(string) == p {
 			exists = true
-			return false
 		}
-		return true
-	})
+	}
 	if !exists {
-		t.Fatalf("expected returned map to contain hash")
+		t.Fatalf("expected returned map to contain hash pointing to file")
 	}
 }

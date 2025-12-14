@@ -8,6 +8,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/keybraker/mediarizer-2/duplicate"
 )
 
 func consumer(
@@ -19,7 +21,7 @@ func consumer(
 	verbose bool,
 	processedFiles *int64,
 	done chan<- struct{},
-	hashCache *sync.Map) {
+	dupChecker *duplicate.DuplicateChecker) {
 
 	var wg sync.WaitGroup
 	numWorkers := runtime.NumCPU() / 2
@@ -39,7 +41,7 @@ func consumer(
 					geoLocation,
 					format,
 					verbose,
-					hashCache,
+					dupChecker,
 				)
 
 				atomic.AddInt64(processedFiles, 1)
@@ -58,11 +60,24 @@ func processFileInfo(
 	geoLocation bool,
 	format string,
 	verbose bool,
-	hashCache *sync.Map,
+	dupChecker *duplicate.DuplicateChecker,
 ) {
-	var generatedPath string
-	var err error
+	// Check for duplicates first
+	isDup, originalPath, err := dupChecker.CheckAndTrack(fileInfo.Path)
+	if err != nil {
+		errorQueue <- fmt.Errorf("failed to check duplicate for %s: %v", fileInfo.Path, err)
+		return
+	}
 
+	if isDup {
+		duplicatesDir := filepath.Join(destinationPath, "duplicates")
+		if err := duplicate.MoveDuplicate(fileInfo.Path, originalPath, duplicatesDir); err != nil {
+			errorQueue <- fmt.Errorf("failed to move duplicate %s: %v", fileInfo.Path, err)
+		}
+		return
+	}
+
+	var generatedPath string
 	generatedPath, err = getDestinationPath(destinationPath, fileInfo, geoLocation, format)
 	if err != nil {
 		errorQueue <- err
@@ -87,15 +102,10 @@ func processFileInfo(
 	if err != nil {
 		errorQueue <- fmt.Errorf("failed to move %s to %s: %v", fileInfo.Path, generatedPath, err)
 	} else {
-		// Update hash cache with new path
-		if val, ok := hashCache.Load(fileInfo.Path); ok {
-			hashCache.Store(generatedPath, val)
-			hashCache.Delete(fileInfo.Path)
-		} else {
-			// If not in cache, try to load it (might have been added by creator or just missed)
-			// But we don't want to calculate hash here if not needed.
-			// Just try to get it from source path if it was there.
-			// If it wasn't in cache, we leave it. HashImagesInPath will handle it later.
+		// Track the new file in the index
+		if err := dupChecker.TrackNewFile(generatedPath); err != nil {
+			// Log warning but don't fail
+			// fmt.Printf("Warning: failed to track new file %s: %v\n", generatedPath, err)
 		}
 	}
 }
