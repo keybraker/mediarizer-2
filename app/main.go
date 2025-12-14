@@ -123,6 +123,7 @@ func main() {
 		*verbose,
 		&processedFiles,
 		done,
+		hashCache,
 	)
 
 	<-done
@@ -173,7 +174,9 @@ func organizeDuplicatesInDestination(destinationPath string, fileTypes []string,
 	var hashedFiles int64
 
 	var err error
-	fileHashMap, err = hash.HashImagesInPath(destinationPath, hashCache, &hashedFiles)
+	// Hash files to ensure cache is warm, but ignore the returned map for duplicate detection
+	// because we want to find duplicates *within* the destination, not just existence.
+	_, err = hash.HashImagesInPath(destinationPath, hashCache, &hashedFiles)
 	if err != nil {
 		return fmt.Errorf("failed to hash files in destination: %v", err)
 	}
@@ -402,7 +405,11 @@ func flagProcessor() []string {
 	}
 
 	if *geoLocation {
-		loadFeatureCollection()
+		fc, err := loadFeatureCollection()
+		if err != nil {
+			logger(LoggerTypeFatal, fmt.Sprintf("failed to load countries.json: %v", err))
+		}
+		featureCollection = fc
 	}
 
 	return fileTypes

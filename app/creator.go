@@ -33,6 +33,9 @@ func creator(
 	var wg sync.WaitGroup
 
 	numWorkers := runtime.NumCPU() / 2
+	if numWorkers < 1 {
+		numWorkers = 1
+	}
 
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
@@ -132,23 +135,6 @@ func processFile(
 }
 
 func getFileType(path string, fileTypesToInclude []string, organisePhotos bool, organiseVideos bool) FileType {
-	file, err := os.Open(path)
-	if err != nil {
-		logger(LoggerTypeWarning, fmt.Sprintf("failed to open file %v: %v", path, err))
-		return FileTypeUnknown
-	}
-	defer file.Close()
-
-	fileInfo, err := file.Stat()
-	if err != nil {
-		logger(LoggerTypeWarning, fmt.Sprintf("failed to get file info: %v", err))
-		return FileTypeUnknown
-	}
-
-	if fileInfo.IsDir() {
-		return FileTypeFolder
-	}
-
 	fileType := FileTypeUnknown
 	if fileTypesToInclude != nil {
 		fileType = FileTypeExcluded

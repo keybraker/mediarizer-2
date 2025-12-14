@@ -18,10 +18,14 @@ func consumer(
 	format string,
 	verbose bool,
 	processedFiles *int64,
-	done chan<- struct{}) {
+	done chan<- struct{},
+	hashCache *sync.Map) {
 
 	var wg sync.WaitGroup
 	numWorkers := runtime.NumCPU() / 2
+	if numWorkers < 1 {
+		numWorkers = 1
+	}
 
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
@@ -35,6 +39,7 @@ func consumer(
 					geoLocation,
 					format,
 					verbose,
+					hashCache,
 				)
 
 				atomic.AddInt64(processedFiles, 1)
@@ -53,6 +58,7 @@ func processFileInfo(
 	geoLocation bool,
 	format string,
 	verbose bool,
+	hashCache *sync.Map,
 ) {
 	var generatedPath string
 	var err error
@@ -80,6 +86,17 @@ func processFileInfo(
 	)
 	if err != nil {
 		errorQueue <- fmt.Errorf("failed to move %s to %s: %v", fileInfo.Path, generatedPath, err)
+	} else {
+		// Update hash cache with new path
+		if val, ok := hashCache.Load(fileInfo.Path); ok {
+			hashCache.Store(generatedPath, val)
+			hashCache.Delete(fileInfo.Path)
+		} else {
+			// If not in cache, try to load it (might have been added by creator or just missed)
+			// But we don't want to calculate hash here if not needed.
+			// Just try to get it from source path if it was there.
+			// If it wasn't in cache, we leave it. HashImagesInPath will handle it later.
+		}
 	}
 }
 

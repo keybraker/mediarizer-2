@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -113,10 +114,7 @@ func loggerWithDots(loggerType string, message string, totalWidth int) {
 	if dotsCount < 0 {
 		dotsCount = 0
 	}
-	dots := ""
-	for i := 0; i < dotsCount; i++ {
-		dots += "."
-	}
+	dots := strings.Repeat(".", dotsCount)
 	formattedMessage := message + dots + "done"
 	logger(loggerType, formattedMessage)
 }

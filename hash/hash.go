@@ -30,7 +30,9 @@ type CachedFile struct {
 
 type DirectoryHash struct {
 	LastScanned time.Time `json:"last_scanned"`
+	ModTime     time.Time `json:"mod_time"`
 	FileCount   int       `json:"file_count"`
+	Files       []string  `json:"files"`
 }
 
 type hashCacheFile struct {
@@ -67,6 +69,16 @@ func isImageFile(filePath string) bool {
 		strings.HasSuffix(lowerFilePath, ".png") || strings.HasSuffix(lowerFilePath, ".gif") ||
 		strings.HasSuffix(lowerFilePath, ".bmp") || strings.HasSuffix(lowerFilePath, ".tiff") ||
 		strings.HasSuffix(lowerFilePath, ".dng") || strings.HasSuffix(lowerFilePath, ".nef")
+}
+
+func isVideoFile(filePath string) bool {
+	lowerFilePath := strings.ToLower(filePath)
+	return strings.HasSuffix(lowerFilePath, ".mp4") || strings.HasSuffix(lowerFilePath, ".avi") ||
+		strings.HasSuffix(lowerFilePath, ".mov") || strings.HasSuffix(lowerFilePath, ".mkv")
+}
+
+func isSupportedMediaFile(filePath string) bool {
+	return isImageFile(filePath) || isVideoFile(filePath)
 }
 
 // calculateFileHash calculates the SHA-256 hash of the file at the given filePath.
@@ -208,9 +220,17 @@ func SaveHashCache(hashCache *sync.Map, cachePath string) error {
 		return fmt.Errorf("failed to marshal hash cache: %v", err)
 	}
 
-	err = os.WriteFile(cachePath, data, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to write hash cache to file: %v", err)
+	// Write atomically to reduce risk of corrupting the cache file on crash.
+	tmpPath := cachePath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write hash cache temp file: %v", err)
+	}
+	// Windows cannot rename over an existing file.
+	if err := os.Remove(cachePath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove existing hash cache file: %v", err)
+	}
+	if err := os.Rename(tmpPath, cachePath); err != nil {
+		return fmt.Errorf("failed to replace hash cache file: %v", err)
 	}
 
 	return nil
@@ -239,26 +259,13 @@ func isSkippableDirectory(dirName string) bool {
 	return skippableDirs[lowerDirName]
 }
 
-// isDirectoryAlreadyHashed checks if a directory was already hashed and has no new files.
-// Returns true if the directory can be skipped due to incremental hashing.
-func isDirectoryAlreadyHashed(dirPath string, hashCache *sync.Map) bool {
-	if cached, found := hashCache.Load("dir:" + dirPath); found {
-		if dirHash, ok := cached.(DirectoryHash); ok {
-			if _, err := os.Stat(dirPath); err == nil {
-				if time.Since(dirHash.LastScanned) < 24*time.Hour {
-					return true
-				}
-			}
-		}
-	}
-	return false
-}
-
 // markDirectoryAsHashed records that a directory has been hashed.
-func markDirectoryAsHashed(dirPath string, fileCount int, hashCache *sync.Map) {
+func markDirectoryAsHashed(dirPath string, fileCount int, modTime time.Time, files []string, hashCache *sync.Map) {
 	dirHash := DirectoryHash{
 		LastScanned: time.Now(),
+		ModTime:     modTime,
 		FileCount:   fileCount,
+		Files:       files,
 	}
 	hashCache.Store("dir:"+dirPath, dirHash)
 }
@@ -269,7 +276,9 @@ func HashImagesInPath(path string, hashCache *sync.Map, hashedFiles *int64) (*sy
 	fileChan := make(chan string, 500)
 	errChan := make(chan error)
 	var wg sync.WaitGroup
-	dirFileCount := make(map[string]int)
+	dirFiles := make(map[string][]string)
+	dirModTimes := make(map[string]time.Time)
+	processedDirs := make(map[string]bool)
 	var dirMutex sync.Mutex
 
 	numWorkers := runtime.NumCPU() * 4
@@ -279,7 +288,7 @@ func HashImagesInPath(path string, hashCache *sync.Map, hashedFiles *int64) (*sy
 		go func() {
 			defer wg.Done()
 			for filePath := range fileChan {
-				if isImageFile(filePath) {
+				if isSupportedMediaFile(filePath) {
 					hashValue, err := GetFileHash(filePath, hashCache)
 					if err != nil {
 						errChan <- fmt.Errorf("failed to get file hash for %s: %v", filePath, err)
@@ -308,8 +317,44 @@ func HashImagesInPath(path string, hashCache *sync.Map, hashedFiles *int64) (*sy
 					return filepath.SkipDir
 				}
 
-				if isDirectoryAlreadyHashed(dirPath, hashCache) {
-					return filepath.SkipDir
+				info, err := d.Info()
+				if err == nil {
+					if cached, found := hashCache.Load("dir:" + dirPath); found {
+						if dirHash, ok := cached.(DirectoryHash); ok {
+							if dirHash.ModTime.Equal(info.ModTime()) && len(dirHash.Files) > 0 {
+								allFilesFound := true
+								for _, fileName := range dirHash.Files {
+									fullPath := filepath.Join(dirPath, fileName)
+									if cachedFileVal, ok := hashCache.Load(fullPath); ok {
+										if cachedFile, ok := cachedFileVal.(CachedFile); ok {
+											hashStr := hex.EncodeToString(cachedFile.Hash)
+											fileHashMap.Store(hashStr, true)
+											atomic.AddInt64(hashedFiles, 1)
+										} else {
+											allFilesFound = false
+											break
+										}
+									} else {
+										allFilesFound = false
+										break
+									}
+								}
+
+								if allFilesFound {
+									dirMutex.Lock()
+									processedDirs[dirPath] = true
+									dirFiles[dirPath] = dirHash.Files
+									dirModTimes[dirPath] = dirHash.ModTime
+									dirMutex.Unlock()
+									return nil
+								}
+							}
+						}
+					}
+
+					dirMutex.Lock()
+					dirModTimes[dirPath] = info.ModTime()
+					dirMutex.Unlock()
 				}
 				return nil
 			}
@@ -318,11 +363,19 @@ func HashImagesInPath(path string, hashCache *sync.Map, hashedFiles *int64) (*sy
 				return nil
 			}
 
-			fileChan <- dirPath
-
 			currentDir := filepath.Dir(dirPath)
 			dirMutex.Lock()
-			dirFileCount[currentDir]++
+			skipped := processedDirs[currentDir]
+			dirMutex.Unlock()
+
+			if skipped {
+				return nil
+			}
+
+			fileChan <- dirPath
+
+			dirMutex.Lock()
+			dirFiles[currentDir] = append(dirFiles[currentDir], d.Name())
 			dirMutex.Unlock()
 
 			return nil
@@ -345,8 +398,16 @@ func HashImagesInPath(path string, hashCache *sync.Map, hashedFiles *int64) (*sy
 	}
 
 	dirMutex.Lock()
-	for dirPath, fileCount := range dirFileCount {
-		markDirectoryAsHashed(dirPath, fileCount, hashCache)
+	for dirPath, files := range dirFiles {
+		modTime, ok := dirModTimes[dirPath]
+		if !ok {
+			if info, err := os.Stat(dirPath); err == nil {
+				modTime = info.ModTime()
+			} else {
+				modTime = time.Now()
+			}
+		}
+		markDirectoryAsHashed(dirPath, len(files), modTime, files, hashCache)
 	}
 	dirMutex.Unlock()
 

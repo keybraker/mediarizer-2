@@ -1,6 +1,7 @@
 package duplicate
 
 import (
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -37,7 +38,7 @@ func IsDuplicate(
 		return false, err
 	}
 
-	hashStr := string(hashValue)
+	hashStr := hex.EncodeToString(hashValue)
 
 	_, exists := fileHashMap.Load(hashStr)
 	if exists {
